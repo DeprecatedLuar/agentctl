@@ -9,10 +9,11 @@ import (
 )
 
 type AgentConfig struct {
-	Provider string       `toml:"provider"`
-	Model    string       `toml:"model"`
-	Tools    []string     `toml:"tools"`
-	Memory   MemoryConfig `toml:"memory"`
+	Provider   string       `toml:"provider"`
+	Model      string       `toml:"model"`
+	Tools      []string     `toml:"tools"`
+	Interfaces []string     `toml:"interfaces"`
+	Memory     MemoryConfig `toml:"memory"`
 }
 
 type MemoryConfig struct {

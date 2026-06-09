@@ -42,7 +42,7 @@ func HandleInit(args []string) error {
 		"agent.toml":         templates.AgentToml,
 		"prompt":             templates.Prompt,
 		"tools/example.toml": templates.ToolExample,
-		".env.template":      templates.EnvTemplate,
+		".env":               templates.EnvTemplate,
 		".gitignore":         templates.Gitignore,
 	}
 

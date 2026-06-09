@@ -1,11 +1,16 @@
 package commands
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 )
 
 func HandleRun(args []string) error {
@@ -38,25 +43,75 @@ func HandleRun(args []string) error {
 		return err
 	}
 
-	// Print summary
-	fmt.Printf("Agent Config:\n")
-	fmt.Printf("  Provider: %s\n", agentCfg.Provider)
-	fmt.Printf("  Model: %s\n", agentCfg.Model)
-	fmt.Printf("  Memory: max_messages=%d\n", agentCfg.Memory.MaxMessages)
-	fmt.Printf("\nTools loaded: %d\n", len(tools))
-	for _, tool := range tools {
-		fmt.Printf("  - %s: %s\n", tool.Name, tool.Command)
-		if len(tool.Parameters) > 0 {
-			fmt.Printf("    Parameters:\n")
-			for name, param := range tool.Parameters {
-				required := ""
-				if param.Required {
-					required = " (required)"
+	// Load prompt
+	prompt, err := config.Parse(absPath, map[string]string{})
+	if err != nil {
+		return fmt.Errorf("failed to load prompt: %w", err)
+	}
+
+	// Open database (stub for now, will be implemented in Phase 5)
+	var db *sql.DB
+	// TODO: Open SQLite database in Phase 5
+
+	// Create runner
+	runner := &interfaces.Runner{
+		AgentFolder: absPath,
+		Config:      agentCfg,
+		Tools:       tools,
+		Prompt:      prompt,
+		DB:          db,
+	}
+
+	// Default interfaces to ["cli"] if not specified
+	interfacesList := agentCfg.Interfaces
+	if len(interfacesList) == 0 {
+		interfacesList = []string{"cli"}
+	}
+
+	fmt.Printf("Agent: %s/%s\n", agentCfg.Provider, agentCfg.Model)
+	fmt.Printf("Tools: %d | Interfaces: %v\n\n", len(tools), interfacesList)
+
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("\nShutting down...")
+		cancel()
+	}()
+
+	// Start interfaces
+	errChan := make(chan error, len(interfacesList))
+	for _, iface := range interfacesList {
+		switch iface {
+		case "cli":
+			cli := interfaces.NewCLI(absPath)
+			go func() {
+				if err := cli.Start(ctx, runner); err != nil {
+					errChan <- fmt.Errorf("cli interface error: %w", err)
 				}
-				fmt.Printf("      - %s (%s)%s\n", name, param.Type, required)
-			}
+			}()
+		case "telegram":
+			telegram := interfaces.NewTelegram(absPath)
+			go func() {
+				if err := telegram.Start(ctx, runner); err != nil {
+					errChan <- fmt.Errorf("telegram interface error: %w", err)
+				}
+			}()
+		default:
+			return fmt.Errorf("unknown interface: %s", iface)
 		}
 	}
 
-	return nil
+	// Wait for shutdown or error
+	select {
+	case err := <-errChan:
+		return err
+	case <-ctx.Done():
+		return nil
+	}
 }
