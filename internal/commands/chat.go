@@ -9,6 +9,19 @@ import (
 	"path/filepath"
 )
 
+const (
+	// File and directory names (shared with run.go)
+	chatAgentConfigFile = "agent.toml"
+	chatDataDir         = ".data"
+	socketFilename      = "agent.sock"
+
+	// Flags
+	flagAgent   = "--agent"
+	flagAgentS  = "-a"
+	flagSession = "--session"
+	flagSessionS = "-s"
+)
+
 type chatRequest struct {
 	Session string `json:"session"`
 	Message string `json:"message"`
@@ -32,15 +45,15 @@ func HandleChat(args []string) error {
 	i := 0
 	for i < len(args) {
 		switch args[i] {
-		case "--agent", "-a":
+		case flagAgent, flagAgentS:
 			if i+1 >= len(args) {
-				return fmt.Errorf("--agent requires a path")
+				return fmt.Errorf("%s requires a path", flagAgent)
 			}
 			path = args[i+1]
 			i += 2
-		case "--session", "-s":
+		case flagSession, flagSessionS:
 			if i+1 >= len(args) {
-				return fmt.Errorf("--session requires a key")
+				return fmt.Errorf("%s requires a key", flagSession)
 			}
 			sessionKey = args[i+1]
 			i += 2
@@ -62,13 +75,13 @@ func HandleChat(args []string) error {
 	}
 
 	// Validate agent folder
-	agentTomlPath := filepath.Join(absPath, "agent.toml")
+	agentTomlPath := filepath.Join(absPath, chatAgentConfigFile)
 	if _, err := os.Stat(agentTomlPath); err != nil {
-		return fmt.Errorf("not an agent folder (agent.toml not found)")
+		return fmt.Errorf("not an agent folder (%s not found)", chatAgentConfigFile)
 	}
 
 	// Connect to socket
-	socketPath := filepath.Join(absPath, ".data", "agent.sock")
+	socketPath := filepath.Join(absPath, chatDataDir, socketFilename)
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		return fmt.Errorf("failed to connect to agent (is it running?): %w", err)

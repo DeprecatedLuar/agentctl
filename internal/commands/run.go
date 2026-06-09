@@ -11,12 +11,60 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
+	"github.com/DeprecatedLuar/agentctl/internal/logger"
+)
+
+const (
+	// File and directory names
+	agentConfigFile = "agent.toml"
+	dataDir         = ".data"
+	logsDir         = "logs"
+
+	// Interface names
+	interfaceCLI      = "cli"
+	interfaceTelegram = "telegram"
+
+	// Flags
+	flagLog     = "--log"
+	flagVerbose = "-v"
+	flagDebug   = "--debug"
+)
+
+var (
+	// Default configuration values
+	defaultInterfaces = []string{interfaceCLI}
+
+	// Shutdown signals
+	shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 )
 
 func HandleRun(args []string) error {
-	path := "."
-	if len(args) > 0 {
-		path = args[0]
+	// Parse flags
+	var (
+		path    = "."
+		log     = false
+		verbose = false
+		debug   = false
+	)
+
+	// Manual flag parsing
+	positional := []string{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch arg {
+		case flagLog:
+			log = true
+		case flagVerbose, "--verbose":
+			verbose = true
+		case flagDebug:
+			debug = true
+		default:
+			positional = append(positional, arg)
+		}
+	}
+
+	if len(positional) > 0 {
+		path = positional[0]
 	}
 
 	// Resolve to absolute path
@@ -26,9 +74,9 @@ func HandleRun(args []string) error {
 	}
 
 	// Validate agent folder
-	agentTomlPath := filepath.Join(absPath, "agent.toml")
+	agentTomlPath := filepath.Join(absPath, agentConfigFile)
 	if _, err := os.Stat(agentTomlPath); err != nil {
-		return fmt.Errorf("not an agent folder (agent.toml not found)")
+		return fmt.Errorf("not an agent folder (%s not found)", agentConfigFile)
 	}
 
 	// Load config
@@ -49,6 +97,21 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("failed to load prompt: %w", err)
 	}
 
+	// Setup logger
+	// logging = false → stdout only
+	// logging = true or flags → stdout + file
+	enableFileLogging := agentCfg.IsLoggingEnabled() || log || verbose || debug
+	logDir := filepath.Join(absPath, dataDir, logsDir)
+	lg, err := logger.Setup(logDir, verbose, debug, enableFileLogging)
+	if err != nil {
+		return fmt.Errorf("setup logger: %w", err)
+	}
+	lg.Info("agent started",
+		"provider", agentCfg.Provider,
+		"model", agentCfg.Model,
+		"interfaces", agentCfg.Interfaces,
+	)
+
 	// Open database (stub for now, will be implemented in Phase 5)
 	var db *sql.DB
 	// TODO: Open SQLite database in Phase 5
@@ -60,12 +123,15 @@ func HandleRun(args []string) error {
 		Tools:       tools,
 		Prompt:      prompt,
 		DB:          db,
+		Logger:      lg,
+		Verbose:     verbose,
+		Debug:       debug,
 	}
 
 	// Default interfaces to ["cli"] if not specified
 	interfacesList := agentCfg.Interfaces
 	if len(interfacesList) == 0 {
-		interfacesList = []string{"cli"}
+		interfacesList = defaultInterfaces
 	}
 
 	fmt.Printf("Agent: %s/%s\n", agentCfg.Provider, agentCfg.Model)
@@ -77,7 +143,7 @@ func HandleRun(args []string) error {
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, shutdownSignals...)
 	go func() {
 		<-sigChan
 		fmt.Println("\nShutting down...")
@@ -88,18 +154,18 @@ func HandleRun(args []string) error {
 	errChan := make(chan error, len(interfacesList))
 	for _, iface := range interfacesList {
 		switch iface {
-		case "cli":
+		case interfaceCLI:
 			cli := interfaces.NewCLI(absPath)
 			go func() {
 				if err := cli.Start(ctx, runner); err != nil {
-					errChan <- fmt.Errorf("cli interface error: %w", err)
+					errChan <- fmt.Errorf("%s interface error: %w", interfaceCLI, err)
 				}
 			}()
-		case "telegram":
+		case interfaceTelegram:
 			telegram := interfaces.NewTelegram(absPath)
 			go func() {
 				if err := telegram.Start(ctx, runner); err != nil {
-					errChan <- fmt.Errorf("telegram interface error: %w", err)
+					errChan <- fmt.Errorf("%s interface error: %w", interfaceTelegram, err)
 				}
 			}()
 		default:

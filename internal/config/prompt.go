@@ -8,6 +8,35 @@ import (
 	"strings"
 )
 
+const (
+	// File names
+	promptFile = "prompt"
+
+	// Section markers
+	inputSectionPrefix  = "[>>"
+	staticSectionPrefix = "[>"
+	sectionSuffix       = "]"
+
+	// File reference prefix
+	fileReferencePrefix = "<"
+
+	// Variable placeholder markers
+	varPlaceholderPrefix = "{{"
+	varPlaceholderSuffix = "}}"
+
+	// Binary content check
+	binaryCheckLimit = 512
+	nullByte         = 0
+
+	// Home directory prefix
+	homeDirPrefix = "~/"
+)
+
+var (
+	// Warning messages
+	noInputSectionWarning = "warning: no [>>] found in prompt — memory injection disabled and incoming messages will not reach the AI"
+)
+
 type ParsedPrompt struct {
 	Static []Message
 	Input  *Message
@@ -19,11 +48,11 @@ type Message struct {
 }
 
 func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
-	promptPath := filepath.Join(agentPath, "prompt")
+	promptPath := filepath.Join(agentPath, promptFile)
 
 	file, err := os.Open(promptPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open prompt file: %w", err)
+		return nil, fmt.Errorf("failed to open %s file: %w", promptFile, err)
 	}
 	defer file.Close()
 
@@ -37,7 +66,7 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 		line := scanner.Text()
 
 		// Check for section headers
-		if strings.HasPrefix(line, "[>>") && strings.HasSuffix(line, "]") {
+		if strings.HasPrefix(line, inputSectionPrefix) && strings.HasSuffix(line, sectionSuffix) {
 			// Save previous section if exists
 			if currentRole != "" {
 				if err := saveMessage(&result, currentRole, currentContent.String(), isInput, agentPath, vars); err != nil {
@@ -47,13 +76,13 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 
 			// Start new input section
 			if result.Input != nil {
-				return nil, fmt.Errorf("multiple [>>] sections found, only one allowed")
+				return nil, fmt.Errorf("multiple %s sections found, only one allowed", inputSectionPrefix)
 			}
-			currentRole = strings.TrimSpace(line[3 : len(line)-1])
+			currentRole = strings.TrimSpace(line[len(inputSectionPrefix) : len(line)-len(sectionSuffix)])
 			currentContent.Reset()
 			isInput = true
 
-		} else if strings.HasPrefix(line, "[>") && strings.HasSuffix(line, "]") {
+		} else if strings.HasPrefix(line, staticSectionPrefix) && strings.HasSuffix(line, sectionSuffix) {
 			// Save previous section if exists
 			if currentRole != "" {
 				if err := saveMessage(&result, currentRole, currentContent.String(), isInput, agentPath, vars); err != nil {
@@ -62,7 +91,7 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 			}
 
 			// Start new static section
-			currentRole = strings.TrimSpace(line[2 : len(line)-1])
+			currentRole = strings.TrimSpace(line[len(staticSectionPrefix) : len(line)-len(sectionSuffix)])
 			currentContent.Reset()
 			isInput = false
 
@@ -83,12 +112,12 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading prompt file: %w", err)
+		return nil, fmt.Errorf("error reading %s file: %w", promptFile, err)
 	}
 
 	// Warn if no input section
 	if result.Input == nil {
-		fmt.Fprintln(os.Stderr, "warning: no [>>] found in prompt — memory injection disabled and incoming messages will not reach the AI")
+		fmt.Fprintln(os.Stderr, noInputSectionWarning)
 	}
 
 	return &result, nil
@@ -123,8 +152,8 @@ func processContent(content, agentPath string, vars map[string]string, substitut
 		trimmed := strings.TrimSpace(line)
 
 		// Handle file references
-		if strings.HasPrefix(trimmed, "<") {
-			filePath := strings.TrimSpace(trimmed[1:])
+		if strings.HasPrefix(trimmed, fileReferencePrefix) {
+			filePath := strings.TrimSpace(trimmed[len(fileReferencePrefix):])
 			fileContent, err := loadFile(filePath, agentPath)
 			if err != nil {
 				return "", err
@@ -154,12 +183,12 @@ func processContent(content, agentPath string, vars map[string]string, substitut
 func loadFile(path, agentPath string) (string, error) {
 	// Resolve path
 	var fullPath string
-	if strings.HasPrefix(path, "~/") {
+	if strings.HasPrefix(path, homeDirPrefix) {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("failed to get home directory: %w", err)
 		}
-		fullPath = filepath.Join(home, path[2:])
+		fullPath = filepath.Join(home, path[len(homeDirPrefix):])
 	} else if filepath.IsAbs(path) {
 		fullPath = path
 	} else {
@@ -190,8 +219,8 @@ func loadFile(path, agentPath string) (string, error) {
 }
 
 func hasBinaryContent(data []byte) bool {
-	for i := 0; i < len(data) && i < 512; i++ {
-		if data[i] == 0 {
+	for i := 0; i < len(data) && i < binaryCheckLimit; i++ {
+		if data[i] == nullByte {
 			return true
 		}
 	}
@@ -201,7 +230,7 @@ func hasBinaryContent(data []byte) bool {
 func substituteVariables(content string, vars map[string]string) string {
 	result := content
 	for key, value := range vars {
-		placeholder := "{{" + key + "}}"
+		placeholder := varPlaceholderPrefix + key + varPlaceholderSuffix
 		result = strings.ReplaceAll(result, placeholder, value)
 	}
 	return result

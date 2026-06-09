@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -13,31 +14,44 @@ import (
 	"github.com/openai/openai-go/option"
 )
 
+const (
+	// OpenRouter configuration
+	openrouterEnvFile     = ".env"
+	openrouterAPIKey      = "OPENROUTER_API_KEY"
+	openrouterBaseURL     = "https://openrouter.ai/api/v1"
+	openrouterProvider    = "openrouter"
+
+	// JSON schema types (shared with OpenAI)
+	schemaTypeObjectOR = "object"
+)
+
 // OpenRouterProvider implements Provider for OpenRouter
 type OpenRouterProvider struct {
 	client openai.Client
 	model  string
+	logger *slog.Logger
 }
 
 // NewOpenRouterProvider creates an OpenRouter provider
-func NewOpenRouterProvider(cfg *config.AgentConfig, agentFolder string) (*OpenRouterProvider, error) {
+func NewOpenRouterProvider(cfg *config.AgentConfig, agentFolder string, logger *slog.Logger) (*OpenRouterProvider, error) {
 	// Load .env from agent folder
-	envPath := filepath.Join(agentFolder, ".env")
+	envPath := filepath.Join(agentFolder, openrouterEnvFile)
 	_ = godotenv.Load(envPath)
 
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
+	apiKey := os.Getenv(openrouterAPIKey)
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENROUTER_API_KEY not found in .env or environment")
+		return nil, fmt.Errorf("%s not found in %s or environment", openrouterAPIKey, openrouterEnvFile)
 	}
 
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
-		option.WithBaseURL("https://openrouter.ai/api/v1"),
+		option.WithBaseURL(openrouterBaseURL),
 	)
 
 	return &OpenRouterProvider{
 		client: client,
 		model:  cfg.Model,
+		logger: logger,
 	}, nil
 }
 
@@ -46,11 +60,11 @@ func (p *OpenRouterProvider) SendMessages(messages []Message, tools []config.Too
 	chatMessages := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
 		switch msg.Role {
-		case "system":
+		case RoleSystem:
 			chatMessages[i] = openai.SystemMessage(msg.Content)
-		case "user":
+		case RoleUser:
 			chatMessages[i] = openai.UserMessage(msg.Content)
-		case "assistant":
+		case RoleAssistant:
 			chatMessages[i] = openai.AssistantMessage(msg.Content)
 		default:
 			return "", nil, fmt.Errorf("unknown role: %s", msg.Role)
@@ -74,9 +88,17 @@ func (p *OpenRouterProvider) SendMessages(messages []Message, tools []config.Too
 		params.Tools = chatTools
 	}
 
+	// Log API call
+	if p.logger != nil {
+		p.logger.Debug("api call", "provider", openrouterProvider, "model", p.model)
+	}
+
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", nil, fmt.Errorf("openrouter api error: %w", err)
+		if p.logger != nil {
+			p.logger.Error("api error", "provider", openrouterProvider, "error", err)
+		}
+		return "", nil, fmt.Errorf("%s api error: %w", openrouterProvider, err)
 	}
 
 	if len(resp.Choices) == 0 {
@@ -120,7 +142,7 @@ func convertToolToOpenRouterFormat(tool *config.ToolConfig) openai.ChatCompletio
 	}
 
 	parametersSchema := map[string]interface{}{
-		"type":       "object",
+		"type":       schemaTypeObjectOR,
 		"properties": properties,
 	}
 	if len(required) > 0 {

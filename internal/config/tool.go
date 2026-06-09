@@ -9,6 +9,20 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+const (
+	// Directory and file names
+	toolsDir        = "tools"
+	exampleToolFile = "example.toml"
+	tomlExtension   = ".toml"
+
+	// Reserved TOML keys (not parameters)
+	keyCommand     = "command"
+	keyDescription = "description"
+
+	// Default parameter type
+	defaultParameterType = "string"
+)
+
 type ToolConfig struct {
 	Name        string
 	Command     string               `toml:"command"`
@@ -23,7 +37,7 @@ type Parameter struct {
 }
 
 func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
-	toolsPath := filepath.Join(agentPath, "tools")
+	toolsPath := filepath.Join(agentPath, toolsDir)
 
 	var filesToLoad []string
 
@@ -31,7 +45,7 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
 		// Auto-discover: load all .toml files except example.toml
 		entries, err := os.ReadDir(toolsPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read tools directory: %w", err)
+			return nil, fmt.Errorf("failed to read %s directory: %w", toolsDir, err)
 		}
 
 		for _, entry := range entries {
@@ -39,7 +53,7 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
 				continue
 			}
 			name := entry.Name()
-			if strings.HasSuffix(name, ".toml") && name != "example.toml" {
+			if strings.HasSuffix(name, tomlExtension) && name != exampleToolFile {
 				filesToLoad = append(filesToLoad, name)
 			}
 		}
@@ -47,8 +61,8 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
 		// Load specified tools
 		for _, name := range toolNames {
 			filename := name
-			if !strings.HasSuffix(filename, ".toml") {
-				filename = name + ".toml"
+			if !strings.HasSuffix(filename, tomlExtension) {
+				filename = name + tomlExtension
 			}
 			filesToLoad = append(filesToLoad, filename)
 		}
@@ -82,26 +96,26 @@ func loadTool(path string, filename string) (ToolConfig, error) {
 	}
 
 	tool := ToolConfig{
-		Name:       strings.TrimSuffix(filename, ".toml"),
+		Name:       strings.TrimSuffix(filename, tomlExtension),
 		Parameters: make(map[string]Parameter),
 	}
 
 	// Extract command and description
-	if cmd, ok := raw["command"].(string); ok {
+	if cmd, ok := raw[keyCommand].(string); ok {
 		tool.Command = cmd
 	}
-	if desc, ok := raw["description"].(string); ok {
+	if desc, ok := raw[keyDescription].(string); ok {
 		tool.Description = desc
 	}
 
 	// Validation
 	if tool.Command == "" {
-		return ToolConfig{}, fmt.Errorf("command is required in %s", filename)
+		return ToolConfig{}, fmt.Errorf("%s is required in %s", keyCommand, filename)
 	}
 
 	// Extract parameters (all other sections are parameters)
 	for key, value := range raw {
-		if key == "command" || key == "description" {
+		if key == keyCommand || key == keyDescription {
 			continue
 		}
 
@@ -111,7 +125,7 @@ func loadTool(path string, filename string) (ToolConfig, error) {
 		}
 
 		param := Parameter{
-			Type: "string", // default
+			Type: defaultParameterType, // default
 		}
 
 		if desc, ok := paramMap["description"].(string); ok {

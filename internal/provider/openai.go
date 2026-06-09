@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -13,31 +14,44 @@ import (
 	"github.com/openai/openai-go/option"
 )
 
+const (
+	// OpenAI configuration
+	openaiEnvFile   = ".env"
+	openaiAPIKey    = "OPENAI_API_KEY"
+	openaiBaseURL   = "https://api.openai.com/v1"
+	openaiProvider  = "openai"
+
+	// JSON schema types
+	schemaTypeObject = "object"
+)
+
 // OpenAIProvider implements Provider for OpenAI
 type OpenAIProvider struct {
 	client openai.Client
 	model  string
+	logger *slog.Logger
 }
 
 // NewOpenAIProvider creates an OpenAI provider
-func NewOpenAIProvider(cfg *config.AgentConfig, agentFolder string) (*OpenAIProvider, error) {
+func NewOpenAIProvider(cfg *config.AgentConfig, agentFolder string, logger *slog.Logger) (*OpenAIProvider, error) {
 	// Load .env from agent folder
-	envPath := filepath.Join(agentFolder, ".env")
+	envPath := filepath.Join(agentFolder, openaiEnvFile)
 	_ = godotenv.Load(envPath)
 
-	apiKey := os.Getenv("OPENAI_API_KEY")
+	apiKey := os.Getenv(openaiAPIKey)
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY not found in .env or environment")
+		return nil, fmt.Errorf("%s not found in %s or environment", openaiAPIKey, openaiEnvFile)
 	}
 
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
-		option.WithBaseURL("https://api.openai.com/v1"),
+		option.WithBaseURL(openaiBaseURL),
 	)
 
 	return &OpenAIProvider{
 		client: client,
 		model:  cfg.Model,
+		logger: logger,
 	}, nil
 }
 
@@ -46,11 +60,11 @@ func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolCon
 	chatMessages := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
 		switch msg.Role {
-		case "system":
+		case RoleSystem:
 			chatMessages[i] = openai.SystemMessage(msg.Content)
-		case "user":
+		case RoleUser:
 			chatMessages[i] = openai.UserMessage(msg.Content)
-		case "assistant":
+		case RoleAssistant:
 			chatMessages[i] = openai.AssistantMessage(msg.Content)
 		default:
 			return "", nil, fmt.Errorf("unknown role: %s", msg.Role)
@@ -74,9 +88,17 @@ func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolCon
 		params.Tools = chatTools
 	}
 
+	// Log API call
+	if p.logger != nil {
+		p.logger.Debug("api call", "provider", openaiProvider, "model", p.model)
+	}
+
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
-		return "", nil, fmt.Errorf("openai api error: %w", err)
+		if p.logger != nil {
+			p.logger.Error("api error", "provider", openaiProvider, "error", err)
+		}
+		return "", nil, fmt.Errorf("%s api error: %w", openaiProvider, err)
 	}
 
 	if len(resp.Choices) == 0 {
@@ -120,7 +142,7 @@ func convertToolToOpenAI(tool *config.ToolConfig) openai.ChatCompletionToolParam
 	}
 
 	parametersSchema := map[string]interface{}{
-		"type":       "object",
+		"type":       schemaTypeObject,
 		"properties": properties,
 	}
 	if len(required) > 0 {

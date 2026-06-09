@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
@@ -21,6 +22,9 @@ type Runner struct {
 	Tools       []config.ToolConfig
 	Prompt      *config.ParsedPrompt
 	DB          *sql.DB
+	Logger      *slog.Logger
+	Verbose     bool
+	Debug       bool
 }
 
 // Run executes the agent with memory management
@@ -36,7 +40,7 @@ func (r *Runner) Run(input agent.Input) (string, error) {
 	}
 
 	// Call agent
-	response, err := agent.Run(r.Config, r.Tools, r.Prompt, history, input, r.AgentFolder)
+	response, err := agent.Run(r.Config, r.Tools, r.Prompt, history, input, r.AgentFolder, r.Logger, r.Verbose, r.Debug)
 	if err != nil {
 		return "", err
 	}

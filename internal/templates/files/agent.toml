@@ -2,6 +2,7 @@ provider = ""
 model = ""
 tools = []
 interfaces = ["cli"]
+logging = true
 
 [memory]
 max_messages = 0

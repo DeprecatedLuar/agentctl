@@ -2,8 +2,20 @@ package provider
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+)
+
+const (
+	// Provider names
+	ProviderOpenAI     = "openai"
+	ProviderOpenRouter = "openrouter"
+
+	// Message roles
+	RoleSystem    = "system"
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
 )
 
 // Message represents a single message in the conversation
@@ -27,12 +39,12 @@ type Provider interface {
 }
 
 // NewProvider creates a provider based on the config
-func NewProvider(cfg *config.AgentConfig, agentFolder string) (Provider, error) {
+func NewProvider(cfg *config.AgentConfig, agentFolder string, logger *slog.Logger) (Provider, error) {
 	switch cfg.Provider {
-	case "openai":
-		return NewOpenAIProvider(cfg, agentFolder)
-	case "openrouter":
-		return NewOpenRouterProvider(cfg, agentFolder)
+	case ProviderOpenAI:
+		return NewOpenAIProvider(cfg, agentFolder, logger)
+	case ProviderOpenRouter:
+		return NewOpenRouterProvider(cfg, agentFolder, logger)
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", cfg.Provider)
 	}

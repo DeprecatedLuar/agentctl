@@ -12,6 +12,20 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 )
 
+const (
+	// Directory and file names
+	cliDataDir     = ".data"
+	cliSocketFile  = "agent.sock"
+	dirPermissions = 0755
+
+	// Interface name
+	interfaceNameCLI = "cli"
+
+	// Session defaults
+	userEnvVar          = "USER"
+	defaultSessionKey   = "cli"
+)
+
 // CLIInterface implements the Unix socket interface for local CLI access
 type CLIInterface struct {
 	socketPath string
@@ -31,7 +45,7 @@ type CLIResponse struct {
 
 // NewCLI creates a new CLI interface
 func NewCLI(agentFolder string) *CLIInterface {
-	socketPath := filepath.Join(agentFolder, ".data", "agent.sock")
+	socketPath := filepath.Join(agentFolder, cliDataDir, cliSocketFile)
 	return &CLIInterface{socketPath: socketPath}
 }
 
@@ -39,7 +53,7 @@ func NewCLI(agentFolder string) *CLIInterface {
 func (c *CLIInterface) Start(ctx context.Context, runner *Runner) error {
 	// Ensure .data directory exists
 	dataDir := filepath.Dir(c.socketPath)
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := os.MkdirAll(dataDir, dirPermissions); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
@@ -93,9 +107,19 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 		// Default session key to $USER or "cli"
 		sessionKey := req.Session
 		if sessionKey == "" {
-			sessionKey = os.Getenv("USER")
+			sessionKey = os.Getenv(userEnvVar)
 			if sessionKey == "" {
-				sessionKey = "cli"
+				sessionKey = defaultSessionKey
+			}
+		}
+
+		// Log message received
+		if runner.Logger != nil {
+			msg := fmt.Sprintf("message received %s:%s", sessionKey, interfaceNameCLI)
+			if runner.Verbose {
+				runner.Logger.Info(msg, "content", req.Message)
+			} else {
+				runner.Logger.Info(msg)
 			}
 		}
 
@@ -106,8 +130,20 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 		})
 
 		if err != nil {
+			if runner.Logger != nil {
+				runner.Logger.Error(fmt.Sprintf("agent error %s:%s", sessionKey, interfaceNameCLI), "error", err)
+			}
 			encoder.Encode(CLIResponse{Error: err.Error()})
 		} else {
+			// Log response sent
+			if runner.Logger != nil {
+				msg := fmt.Sprintf("response sent %s:%s", sessionKey, interfaceNameCLI)
+				if runner.Verbose {
+					runner.Logger.Info(msg, "content", response)
+				} else {
+					runner.Logger.Info(msg)
+				}
+			}
 			encoder.Encode(CLIResponse{Response: response})
 		}
 	}
