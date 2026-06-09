@@ -178,7 +178,10 @@ func HandleRun(args []string) error {
 				}
 			}()
 		case interfaceTelegram:
-			telegram := interfaces.NewTelegram(absPath)
+			telegram, err := interfaces.NewTelegram(absPath)
+			if err != nil {
+				return fmt.Errorf("failed to initialize telegram interface: %w", err)
+			}
 			go func() {
 				if err := telegram.Start(ctx, runner); err != nil {
 					errChan <- fmt.Errorf("%s interface error: %w", interfaceTelegram, err)
