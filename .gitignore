@@ -3,6 +3,7 @@
 dist/
 build/
 _*
+_*/
 !__*
 
 # Dependencies
@@ -23,6 +24,7 @@ dist-ssr
 # Ignore all files without extensions
 *
 !*/
+_*/
 !*.*
 *.exe
 build/
