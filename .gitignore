@@ -1,0 +1,81 @@
+# Build artifacts
+*.exe
+dist/
+build/
+_*
+!__*
+
+# Dependencies
+node_modules/
+package-lock.json
+dist
+dist-ssr
+.output
+.vinxi
+.tanstack/**
+.nitro
+*.local
+
+# Wrangler / Cloudflare
+.wrangler/
+.dev.vars
+
+# Ignore all files without extensions
+*
+!*/
+!*.*
+*.exe
+build/
+
+# IDE files
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+
+# Temporary files
+*.tmp
+*.temp
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+
+# Assets
+*.png
+*.mp4
+*.kra
+
+# Purpose and planning files
+*.purpose.md
+.purpose.md
+readme.reference.md
+README-draft.md
+vision.md
+CLAUDE.md
+other/blueprint/
+implementation-plan.md
+implementation-history.md
+.env
+*doc.md
+doc.md
+
+# Whitelist
+!README.md
+!LICENCE
+!LICENSE
+!shell.nix
+!.gitignore

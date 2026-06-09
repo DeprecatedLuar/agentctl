@@ -1,0 +1,9 @@
+command = ""
+description = """
+"""
+
+[query]
+description = """
+"""
+type = "string"
+required = true

@@ -1,0 +1,6 @@
+provider = ""
+model = ""
+tools = []
+
+[memory]
+max_messages = 0
