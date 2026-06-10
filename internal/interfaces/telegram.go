@@ -3,12 +3,15 @@ package interfaces
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
+	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 )
@@ -24,12 +27,13 @@ const (
 
 // TelegramInterface implements the Telegram bot interface
 type TelegramInterface struct {
-	agentFolder string
-	token       string
+	agentFolder  string
+	token        string
+	transcriber  audio.Transcriber // Optional, for voice message support
 }
 
 // NewTelegram creates a new Telegram interface
-func NewTelegram(agentFolder string) (*TelegramInterface, error) {
+func NewTelegram(agentFolder string, transcriber audio.Transcriber) (*TelegramInterface, error) {
 	// Load .env from agent folder
 	envPath := filepath.Join(agentFolder, telegramEnvFile)
 	_ = godotenv.Load(envPath)
@@ -42,6 +46,7 @@ func NewTelegram(agentFolder string) (*TelegramInterface, error) {
 	return &TelegramInterface{
 		agentFolder: agentFolder,
 		token:       token,
+		transcriber: transcriber,
 	}, nil
 }
 
@@ -93,6 +98,24 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 			runner.Logger.Info("start command", "user", sessionKey)
 		}
 		return
+	}
+
+	// Handle voice messages
+	if message.Voice != nil && t.transcriber != nil {
+		var err error
+		text, err = t.transcribeVoiceMessage(bot, message.Voice)
+		if err != nil {
+			if runner.Logger != nil {
+				runner.Logger.Error(fmt.Sprintf("transcription error %s:%s", sessionKey, interfaceNameTelegram), "error", err)
+			}
+			errorMsg := fmt.Sprintf("Failed to transcribe voice message: %v", err)
+			msg := tgbotapi.NewMessage(chatID, errorMsg)
+			bot.Send(msg)
+			return
+		}
+		if runner.Logger != nil {
+			runner.Logger.Info("voice message transcribed", "user", sessionKey, "text", text)
+		}
 	}
 
 	// Log message received
@@ -160,4 +183,40 @@ func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.Bo
 			return
 		}
 	}
+}
+
+func (t *TelegramInterface) transcribeVoiceMessage(bot *tgbotapi.BotAPI, voice *tgbotapi.Voice) (string, error) {
+	// Get file download URL
+	fileConfig := tgbotapi.FileConfig{FileID: voice.FileID}
+	file, err := bot.GetFile(fileConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	fileURL := file.Link(bot.Token)
+
+	// Download the file
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download voice file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download voice file: HTTP %d", resp.StatusCode)
+	}
+
+	// Read audio data
+	audioData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read audio data: %w", err)
+	}
+
+	// Transcribe
+	text, err := t.transcriber.Transcribe(audioData, "voice.ogg")
+	if err != nil {
+		return "", fmt.Errorf("transcription failed: %w", err)
+	}
+
+	return text, nil
 }

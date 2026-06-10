@@ -32,10 +32,6 @@ const (
 	homeDirPrefix = "~/"
 )
 
-var (
-	// Warning messages
-	noInputSectionWarning = "warning: no [>>] found in prompt — memory injection disabled and incoming messages will not reach the AI"
-)
 
 type ParsedPrompt struct {
 	Static []Message
@@ -47,12 +43,17 @@ type Message struct {
 	Content string
 }
 
-func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
+func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, []ValidationIssue) {
+	var issues []ValidationIssue
 	promptPath := filepath.Join(agentPath, promptFile)
 
 	file, err := os.Open(promptPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open %s file: %w", promptFile, err)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueWarning,
+			Message: fmt.Sprintf("prompt: %v", err),
+		})
+		return nil, issues
 	}
 	defer file.Close()
 
@@ -70,13 +71,21 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 			// Save previous section if exists
 			if currentRole != "" {
 				if err := saveMessage(&result, currentRole, currentContent.String(), isInput, agentPath, vars); err != nil {
-					return nil, err
+					issues = append(issues, ValidationIssue{
+						Type:    IssueError,
+						Message: fmt.Sprintf("prompt: %v", err),
+					})
+					return nil, issues
 				}
 			}
 
 			// Start new input section
 			if result.Input != nil {
-				return nil, fmt.Errorf("multiple %s sections found, only one allowed", inputSectionPrefix)
+				issues = append(issues, ValidationIssue{
+					Type:    IssueError,
+					Message: fmt.Sprintf("prompt: multiple %s sections found, only one allowed", inputSectionPrefix),
+				})
+				return nil, issues
 			}
 			currentRole = strings.TrimSpace(line[len(inputSectionPrefix) : len(line)-len(sectionSuffix)])
 			currentContent.Reset()
@@ -86,7 +95,11 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 			// Save previous section if exists
 			if currentRole != "" {
 				if err := saveMessage(&result, currentRole, currentContent.String(), isInput, agentPath, vars); err != nil {
-					return nil, err
+					issues = append(issues, ValidationIssue{
+						Type:    IssueError,
+						Message: fmt.Sprintf("prompt: %v", err),
+					})
+					return nil, issues
 				}
 			}
 
@@ -107,20 +120,31 @@ func Parse(agentPath string, vars map[string]string) (*ParsedPrompt, error) {
 	// Save last section
 	if currentRole != "" {
 		if err := saveMessage(&result, currentRole, currentContent.String(), isInput, agentPath, vars); err != nil {
-			return nil, err
+			issues = append(issues, ValidationIssue{
+				Type:    IssueError,
+				Message: fmt.Sprintf("prompt: %v", err),
+			})
+			return nil, issues
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading %s file: %w", promptFile, err)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("prompt: error reading file: %v", err),
+		})
+		return nil, issues
 	}
 
 	// Warn if no input section
 	if result.Input == nil {
-		fmt.Fprintln(os.Stderr, noInputSectionWarning)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueWarning,
+			Message: "prompt: no [>>] section found — memory injection disabled",
+		})
 	}
 
-	return &result, nil
+	return &result, issues
 }
 
 func saveMessage(result *ParsedPrompt, role, content string, isInput bool, agentPath string, vars map[string]string) error {

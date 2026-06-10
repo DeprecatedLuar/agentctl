@@ -24,9 +24,11 @@ Hello
 		t.Fatal(err)
 	}
 
-	result, err := Parse(tmpDir, map[string]string{"test": "value"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result, issues := Parse(tmpDir, map[string]string{"test": "value"})
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("unexpected error: %v", issue.Message)
+		}
 	}
 
 	if len(result.Static) != 2 {
@@ -73,9 +75,11 @@ You are {{role}}.
 		"role": "a test assistant",
 	}
 
-	result, err := Parse(tmpDir, vars)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result, issues := Parse(tmpDir, vars)
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("unexpected error: %v", issue.Message)
+		}
 	}
 
 	// Static messages should have variables substituted
@@ -113,9 +117,11 @@ func TestParse_FileReference(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Parse(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result, issues := Parse(tmpDir, nil)
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("unexpected error: %v", issue.Message)
+		}
 	}
 
 	if !strings.Contains(result.Static[0].Content, "This is referenced content.") {
@@ -134,12 +140,19 @@ func TestParse_FileNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Parse(tmpDir, nil)
-	if err == nil {
-		t.Fatal("expected error for missing file")
+	_, issues := Parse(tmpDir, nil)
+	if len(issues) == 0 {
+		t.Fatal("expected validation issues for missing file")
 	}
-	if !strings.Contains(err.Error(), "nonexistent.txt") {
-		t.Errorf("expected error to mention file name, got: %v", err)
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "nonexistent.txt") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected issue to mention file name, got: %v", issues)
 	}
 }
 
@@ -157,12 +170,19 @@ Second input`
 		t.Fatal(err)
 	}
 
-	_, err := Parse(tmpDir, nil)
-	if err == nil {
-		t.Fatal("expected error for multiple [>>] sections")
+	_, issues := Parse(tmpDir, nil)
+	if len(issues) == 0 {
+		t.Fatal("expected validation issues for multiple [>>] sections")
 	}
-	if !strings.Contains(err.Error(), "multiple") {
-		t.Errorf("expected error about multiple sections, got: %v", err)
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "multiple") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected issue about multiple sections, got: %v", issues)
 	}
 }
 
@@ -177,9 +197,11 @@ Only static content.`
 		t.Fatal(err)
 	}
 
-	result, err := Parse(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result, issues := Parse(tmpDir, nil)
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("unexpected error: %v", issue.Message)
+		}
 	}
 
 	if result.Input != nil {
@@ -202,9 +224,11 @@ func TestParse_AbsoluteFilePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Parse(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result, issues := Parse(tmpDir, nil)
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("unexpected error: %v", issue.Message)
+		}
 	}
 
 	if !strings.Contains(result.Static[0].Content, "absolute content") {
@@ -230,12 +254,19 @@ func TestParse_BinaryFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Parse(tmpDir, nil)
-	if err == nil {
-		t.Fatal("expected error for binary file")
+	_, issues := Parse(tmpDir, nil)
+	if len(issues) == 0 {
+		t.Fatal("expected validation issues for binary file")
 	}
-	if !strings.Contains(err.Error(), "binary") {
-		t.Errorf("expected error about binary file, got: %v", err)
+	found := false
+	for _, issue := range issues {
+		if strings.Contains(issue.Message, "binary") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected issue about binary file, got: %v", issues)
 	}
 }
 
@@ -247,9 +278,11 @@ func TestParse_EmptyPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Parse(tmpDir, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	result, issues := Parse(tmpDir, nil)
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("unexpected error: %v", issue.Message)
+		}
 	}
 
 	if len(result.Static) != 0 {

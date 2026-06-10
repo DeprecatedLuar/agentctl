@@ -6,3 +6,7 @@ logging = true
 
 [memory]
 max_messages = 0
+
+# [audio]
+# provider = "whisper"  # or http://localhost:9000/v1 for local whisper server
+# model = "whisper-1"

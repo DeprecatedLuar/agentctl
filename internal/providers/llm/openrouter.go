@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"context"
@@ -15,48 +15,48 @@ import (
 )
 
 const (
-	// OpenAI configuration
-	openaiEnvFile   = ".env"
-	openaiAPIKey    = "OPENAI_API_KEY"
-	openaiBaseURL   = "https://api.openai.com/v1"
-	openaiProvider  = "openai"
+	// OpenRouter configuration
+	openrouterEnvFile     = ".env"
+	openrouterAPIKey      = "OPENROUTER_API_KEY"
+	openrouterBaseURL     = "https://openrouter.ai/api/v1"
+	openrouterProvider    = "openrouter"
 
-	// JSON schema types
-	schemaTypeObject = "object"
+	// JSON schema types (shared with OpenAI)
+	schemaTypeObjectOR = "object"
 )
 
-// OpenAIProvider implements Provider for OpenAI
-type OpenAIProvider struct {
+// OpenRouterProvider implements Provider for OpenRouter
+type OpenRouterProvider struct {
 	client openai.Client
 	model  string
 	logger *slog.Logger
 }
 
-// NewOpenAIProvider creates an OpenAI provider
-func NewOpenAIProvider(cfg *config.AgentConfig, agentFolder string, logger *slog.Logger) (*OpenAIProvider, error) {
+// NewOpenRouterProvider creates an OpenRouter provider
+func NewOpenRouterProvider(cfg *config.AgentConfig, agentFolder string, logger *slog.Logger) (*OpenRouterProvider, error) {
 	// Load .env from agent folder
-	envPath := filepath.Join(agentFolder, openaiEnvFile)
+	envPath := filepath.Join(agentFolder, openrouterEnvFile)
 	_ = godotenv.Load(envPath)
 
-	apiKey := os.Getenv(openaiAPIKey)
+	apiKey := os.Getenv(openrouterAPIKey)
 	if apiKey == "" {
-		return nil, fmt.Errorf("%s not found in %s or environment", openaiAPIKey, openaiEnvFile)
+		return nil, fmt.Errorf("%s not found in %s or environment", openrouterAPIKey, openrouterEnvFile)
 	}
 
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
-		option.WithBaseURL(openaiBaseURL),
+		option.WithBaseURL(openrouterBaseURL),
 	)
 
-	return &OpenAIProvider{
+	return &OpenRouterProvider{
 		client: client,
 		model:  cfg.Model,
 		logger: logger,
 	}, nil
 }
 
-// SendMessages sends messages to OpenAI and returns the response
-func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolConfig) (string, []ToolCall, error) {
+// SendMessages sends messages to OpenRouter and returns the response
+func (p *OpenRouterProvider) SendMessages(messages []Message, tools []config.ToolConfig) (string, []ToolCall, error) {
 	chatMessages := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
 		switch msg.Role {
@@ -75,7 +75,7 @@ func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolCon
 	if len(tools) > 0 {
 		chatTools = make([]openai.ChatCompletionToolParam, len(tools))
 		for i, tool := range tools {
-			chatTools[i] = convertToolToOpenAI(&tool)
+			chatTools[i] = convertToolToOpenRouterFormat(&tool)
 		}
 	}
 
@@ -90,15 +90,15 @@ func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolCon
 
 	// Log API call
 	if p.logger != nil {
-		p.logger.Debug("api call", "provider", openaiProvider, "model", p.model)
+		p.logger.Debug("api call", "provider", openrouterProvider, "model", p.model)
 	}
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		if p.logger != nil {
-			p.logger.Error("api error", "provider", openaiProvider, "error", err)
+			p.logger.Error("api error", "provider", openrouterProvider, "error", err)
 		}
-		return "", nil, fmt.Errorf("%s api error: %w", openaiProvider, err)
+		return "", nil, fmt.Errorf("%s api error: %w", openrouterProvider, err)
 	}
 
 	if len(resp.Choices) == 0 {
@@ -127,7 +127,7 @@ func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolCon
 	return content, toolCalls, nil
 }
 
-func convertToolToOpenAI(tool *config.ToolConfig) openai.ChatCompletionToolParam {
+func convertToolToOpenRouterFormat(tool *config.ToolConfig) openai.ChatCompletionToolParam {
 	properties := make(map[string]interface{})
 	required := []string{}
 
@@ -142,7 +142,7 @@ func convertToolToOpenAI(tool *config.ToolConfig) openai.ChatCompletionToolParam
 	}
 
 	parametersSchema := map[string]interface{}{
-		"type":       schemaTypeObject,
+		"type":       schemaTypeObjectOR,
 		"properties": properties,
 	}
 	if len(required) > 0 {

@@ -11,6 +11,7 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
+	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 )
 
 const (
@@ -78,22 +79,44 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("not an agent folder (%s not found)", agentConfigFile)
 	}
 
-	// Load config
-	agentCfg, err := config.LoadAgent(absPath)
-	if err != nil {
-		return err
-	}
+	// Load config and collect validation issues
+	var allIssues []config.ValidationIssue
 
-	// Load tools
-	tools, err := config.LoadTools(absPath, agentCfg.Tools)
-	if err != nil {
-		return err
+	agentCfg, agentIssues := config.LoadAgent(absPath)
+	allIssues = append(allIssues, agentIssues...)
+
+	// Load tools (only if agent config was loaded successfully)
+	var tools []config.ToolConfig
+	if agentCfg != nil {
+		var toolIssues []config.ValidationIssue
+		tools, toolIssues = config.LoadTools(absPath, agentCfg.Tools)
+		allIssues = append(allIssues, toolIssues...)
 	}
 
 	// Load prompt
-	prompt, err := config.Parse(absPath, map[string]string{})
-	if err != nil {
-		return fmt.Errorf("failed to load prompt: %w", err)
+	prompt, promptIssues := config.Parse(absPath, map[string]string{})
+	allIssues = append(allIssues, promptIssues...)
+
+	// Print validation results
+	if len(allIssues) > 0 {
+		hasErrors := false
+		for _, issue := range allIssues {
+			fmt.Printf("[%s] %s\n", issue.Type, issue.Message)
+			if issue.Type == config.IssueError {
+				hasErrors = true
+			}
+		}
+		fmt.Println() // blank line after issues
+
+		// Exit if any errors
+		if hasErrors {
+			return fmt.Errorf("configuration validation failed")
+		}
+	}
+
+	// Ensure agentCfg is not nil at this point
+	if agentCfg == nil {
+		return fmt.Errorf("failed to load agent configuration")
 	}
 
 	// Setup logger
@@ -114,6 +137,17 @@ func HandleRun(args []string) error {
 	// Ensure .data directory exists
 	if err := os.MkdirAll(filepath.Join(absPath, dataDir), 0755); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
+	}
+
+	// Create audio transcriber if configured
+	var transcriber audio.Transcriber
+	if agentCfg.Audio != nil {
+		var err error
+		transcriber, err = audio.New(agentCfg.Audio, absPath)
+		if err != nil {
+			return fmt.Errorf("failed to initialize audio transcriber: %w", err)
+		}
+		lg.Info("audio transcriber initialized", "provider", agentCfg.Audio.Provider)
 	}
 
 	// Create runner
@@ -161,7 +195,7 @@ func HandleRun(args []string) error {
 				}
 			}()
 		case interfaceTelegram:
-			telegram, err := interfaces.NewTelegram(absPath)
+			telegram, err := interfaces.NewTelegram(absPath, transcriber)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telegram interface: %w", err)
 			}

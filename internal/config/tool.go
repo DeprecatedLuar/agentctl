@@ -36,7 +36,10 @@ type Parameter struct {
 	Required    bool   `toml:"required"`
 }
 
-func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
+func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []ValidationIssue) {
+	var issues []ValidationIssue
+	var tools []ToolConfig
+
 	toolsPath := filepath.Join(agentPath, toolsDir)
 
 	var filesToLoad []string
@@ -45,7 +48,11 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
 		// Auto-discover: load all .toml files except example.toml
 		entries, err := os.ReadDir(toolsPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read %s directory: %w", toolsDir, err)
+			issues = append(issues, ValidationIssue{
+				Type:    IssueError,
+				Message: fmt.Sprintf("tools/: %v", err),
+			})
+			return nil, issues
 		}
 
 		for _, entry := range entries {
@@ -58,41 +65,66 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, error) {
 			}
 		}
 	} else {
-		// Load specified tools
+		// Load specified tools - validate they exist
 		for _, name := range toolNames {
 			filename := name
 			if !strings.HasSuffix(filename, tomlExtension) {
 				filename = name + tomlExtension
 			}
+			toolPath := filepath.Join(toolsPath, filename)
+			if _, err := os.Stat(toolPath); err != nil {
+				issues = append(issues, ValidationIssue{
+					Type:    IssueError,
+					Message: fmt.Sprintf("tools/%s: declared in agent.toml but file not found", filename),
+				})
+				continue
+			}
 			filesToLoad = append(filesToLoad, filename)
 		}
 	}
 
-	var tools []ToolConfig
 	for _, filename := range filesToLoad {
 		toolPath := filepath.Join(toolsPath, filename)
 
-		tool, err := loadTool(toolPath, filename)
-		if err != nil {
-			return nil, err
-		}
+		tool, toolIssues := loadTool(toolPath, filename)
+		issues = append(issues, toolIssues...)
 
-		tools = append(tools, tool)
+		// Only add tool if no errors occurred
+		hasError := false
+		for _, issue := range toolIssues {
+			if issue.Type == IssueError {
+				hasError = true
+				break
+			}
+		}
+		if !hasError {
+			tools = append(tools, tool)
+		}
 	}
 
-	return tools, nil
+	return tools, issues
 }
 
-func loadTool(path string, filename string) (ToolConfig, error) {
+func loadTool(path string, filename string) (ToolConfig, []ValidationIssue) {
+	var issues []ValidationIssue
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ToolConfig{}, fmt.Errorf("failed to read %s: %w", filename, err)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("tools/%s: %v", filename, err),
+		})
+		return ToolConfig{}, issues
 	}
 
 	// Parse as generic map to handle dynamic parameter sections
 	var raw map[string]interface{}
 	if err := toml.Unmarshal(data, &raw); err != nil {
-		return ToolConfig{}, fmt.Errorf("failed to parse %s: %w", filename, err)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("tools/%s: failed to parse TOML: %v", filename, err),
+		})
+		return ToolConfig{}, issues
 	}
 
 	tool := ToolConfig{
@@ -110,7 +142,10 @@ func loadTool(path string, filename string) (ToolConfig, error) {
 
 	// Validation
 	if tool.Command == "" {
-		return ToolConfig{}, fmt.Errorf("%s is required in %s", keyCommand, filename)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("tools/%s: command field is required", filename),
+		})
 	}
 
 	// Extract parameters (all other sections are parameters)
@@ -130,7 +165,14 @@ func loadTool(path string, filename string) (ToolConfig, error) {
 
 		if desc, ok := paramMap["description"].(string); ok {
 			param.Description = desc
+		} else {
+			// Warn if parameter missing description
+			issues = append(issues, ValidationIssue{
+				Type:    IssueWarning,
+				Message: fmt.Sprintf("tools/%s: parameter '%s' missing description", filename, key),
+			})
 		}
+
 		if typ, ok := paramMap["type"].(string); ok {
 			param.Type = typ
 		}
@@ -141,5 +183,5 @@ func loadTool(path string, filename string) (ToolConfig, error) {
 		tool.Parameters[key] = param
 	}
 
-	return tool, nil
+	return tool, issues
 }

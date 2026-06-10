@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
-	"github.com/DeprecatedLuar/agentctl/internal/provider"
+	"github.com/DeprecatedLuar/agentctl/internal/providers/llm"
 )
 
 const (
@@ -30,13 +30,13 @@ type Input struct {
 	Content    string
 }
 
-// Message is an alias for provider.Message (for convenience)
-type Message = provider.Message
+// Message is an alias for llm.Message (for convenience)
+type Message = llm.Message
 
 // Run executes the agent with the given configuration and input
 func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, logger *slog.Logger, verbose bool, debug bool) (string, error) {
 	// Create provider
-	prov, err := provider.NewProvider(cfg, agentFolder, logger)
+	prov, err := llm.NewProvider(cfg, agentFolder, logger)
 	if err != nil {
 		return "", fmt.Errorf("failed to create provider: %w", err)
 	}
