@@ -2,7 +2,6 @@ package interfaces
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
@@ -21,7 +20,6 @@ type Runner struct {
 	Config      *config.AgentConfig
 	Tools       []config.ToolConfig
 	Prompt      *config.ParsedPrompt
-	DB          *sql.DB
 	Logger      *slog.Logger
 	Verbose     bool
 	Debug       bool
@@ -31,8 +29,8 @@ type Runner struct {
 func (r *Runner) Run(input agent.Input) (string, error) {
 	// Load history from memory
 	var history []agent.Message
-	if r.Config.Memory.MaxMessages > 0 && r.DB != nil {
-		messages, err := memory.Load(r.DB, input.SessionKey, r.Config.Memory.MaxMessages)
+	if r.Config.Memory.MaxMessages > 0 {
+		messages, err := memory.Load(r.AgentFolder, input.SessionKey, r.Config.Memory.MaxMessages)
 		if err != nil {
 			return "", err
 		}
@@ -46,9 +44,9 @@ func (r *Runner) Run(input agent.Input) (string, error) {
 	}
 
 	// Save to memory
-	if r.Config.Memory.MaxMessages > 0 && r.DB != nil {
-		_ = memory.Save(r.DB, input.SessionKey, "user", input.Content)
-		_ = memory.Save(r.DB, input.SessionKey, "assistant", response)
+	if r.Config.Memory.MaxMessages > 0 {
+		_ = memory.Save(r.AgentFolder, input.SessionKey, "user", input.Content)
+		_ = memory.Save(r.AgentFolder, input.SessionKey, "assistant", response)
 	}
 
 	return response, nil

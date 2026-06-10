@@ -1,76 +1,121 @@
 package memory
 
 import (
-	"database/sql"
+	"bufio"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // Message is an alias for agent.Message
 type Message = agent.Message
 
-const schema = `
-CREATE TABLE IF NOT EXISTS messages (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_key TEXT NOT NULL,
-    role        TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_session ON messages(session_key, created_at);
-`
-
-// InitDB creates tables and indexes
-func InitDB(db *sql.DB) error {
-	_, err := db.Exec(schema)
-	return err
+// jsonLine represents a single line in the JSONL file
+type jsonLine struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	TS      int64  `json:"ts"`
 }
 
-// Load retrieves messages from memory in chronological order
-func Load(db *sql.DB, sessionKey string, limit int) ([]Message, error) {
-	// Query in DESC order, then reverse to get chronological
-	query := `
-		SELECT role, content
-		FROM messages
-		WHERE session_key = ?
-		ORDER BY created_at DESC
-		LIMIT ?
-	`
+const memoryDir = ".data/memory"
 
-	rows, err := db.Query(query, sessionKey, limit)
+// sessionPath returns the path to a session's JSONL file
+func sessionPath(agentFolder, sessionKey string) string {
+	filename := sessionKey + ".jsonl"
+	return filepath.Join(agentFolder, memoryDir, filename)
+}
+
+// Load retrieves the last N messages from a session file in chronological order
+func Load(agentFolder, sessionKey string, limit int) ([]Message, error) {
+	if limit == 0 {
+		return []Message{}, nil
+	}
+
+	path := sessionPath(agentFolder, sessionKey)
+
+	// If file doesn't exist, return empty history (no error)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return []Message{}, nil
+	}
+
+	// Read all lines from file
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer file.Close()
 
-	var messages []Message
-	for rows.Next() {
-		var msg Message
-		if err := rows.Scan(&msg.Role, &msg.Content); err != nil {
-			return nil, err
+	var lines []jsonLine
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var line jsonLine
+		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
+			// Skip malformed lines
+			continue
 		}
-		messages = append(messages, msg)
+		lines = append(lines, line)
 	}
 
-	if err := rows.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 
-	// Reverse to chronological order
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
+	// Take last N lines
+	start := 0
+	if len(lines) > limit {
+		start = len(lines) - limit
+	}
+	lines = lines[start:]
+
+	// Convert to Messages (already in chronological order)
+	messages := make([]Message, len(lines))
+	for i, line := range lines {
+		messages[i] = Message{
+			Role:    line.Role,
+			Content: line.Content,
+		}
 	}
 
 	return messages, nil
 }
 
-// Save stores a message in memory
-func Save(db *sql.DB, sessionKey string, role string, content string) error {
-	query := `
-		INSERT INTO messages (session_key, role, content)
-		VALUES (?, ?, ?)
-	`
-	_, err := db.Exec(query, sessionKey, role, content)
-	return err
+// Save appends a message to a session file
+func Save(agentFolder, sessionKey, role, content string) error {
+	// Ensure memory directory exists
+	dir := filepath.Join(agentFolder, memoryDir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	path := sessionPath(agentFolder, sessionKey)
+
+	// Open file in append mode (create if doesn't exist)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Create JSON line
+	line := jsonLine{
+		Role:    role,
+		Content: content,
+		TS:      time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(line)
+	if err != nil {
+		return err
+	}
+
+	// Append line to file
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		return err
+	}
+
+	return nil
 }

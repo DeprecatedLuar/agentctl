@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
@@ -12,8 +11,6 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
-	"github.com/DeprecatedLuar/agentctl/internal/memory"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -119,26 +116,12 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("create data directory: %w", err)
 	}
 
-	// Open database
-	dbPath := filepath.Join(absPath, dataDir, "memory.db")
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return fmt.Errorf("open database: %w", err)
-	}
-	defer db.Close()
-
-	// Initialize schema
-	if err := memory.InitDB(db); err != nil {
-		return fmt.Errorf("initialize database: %w", err)
-	}
-
 	// Create runner
 	runner := &interfaces.Runner{
 		AgentFolder: absPath,
 		Config:      agentCfg,
 		Tools:       tools,
 		Prompt:      prompt,
-		DB:          db,
 		Logger:      lg,
 		Verbose:     verbose,
 		Debug:       debug,

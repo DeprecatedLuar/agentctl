@@ -22,8 +22,7 @@ const (
 	interfaceNameCLI = "cli"
 
 	// Session defaults
-	userEnvVar          = "USER"
-	defaultSessionKey   = "cli"
+	defaultSessionKey = "default"
 )
 
 // CLIInterface implements the Unix socket interface for local CLI access
@@ -104,13 +103,10 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 			continue
 		}
 
-		// Default session key to $USER or "cli"
+		// Default session key to "default"
 		sessionKey := req.Session
 		if sessionKey == "" {
-			sessionKey = os.Getenv(userEnvVar)
-			if sessionKey == "" {
-				sessionKey = defaultSessionKey
-			}
+			sessionKey = defaultSessionKey
 		}
 
 		// Log message received

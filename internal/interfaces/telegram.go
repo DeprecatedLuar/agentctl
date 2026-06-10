@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
@@ -81,7 +82,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	userID := message.From.ID
 	text := message.Text
 
-	sessionKey := fmt.Sprintf("telegram_%d", userID)
+	sessionKey := strconv.FormatInt(userID, 10)
 
 	// Handle /start command
 	if text == "/start" {
