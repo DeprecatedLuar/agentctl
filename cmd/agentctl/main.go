@@ -34,6 +34,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "models":
+		if err := commands.HandleModels(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "help":
 		printHelp(args)
 	default:
@@ -55,11 +60,18 @@ func printHelp(args []string) {
 			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
 			gohelp.Item("chat <message>", "Send message to running agent daemon", "agentctl chat \"hello\" -a my-agent"),
+			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
 			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, interfaces, memory)"),
 		).
 		Section("Chat Flags",
 			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
 			gohelp.Item("--session, -s <key>", "Session key for memory isolation"),
+		).
+		Section("Models Flags",
+			gohelp.Item("--free", "Show only free models"),
+			gohelp.Item("--tools", "Show only models with tool support"),
+			gohelp.Item("--stt", "Show speech-to-text models"),
+			gohelp.Item("--all", "Show all models including obscure providers (default: popular + free only)"),
 		).
 		Text("Run 'agentctl help <topic>' for detailed documentation.")
 
