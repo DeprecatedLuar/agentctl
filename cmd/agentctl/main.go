@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 
+	gohelp "github.com/DeprecatedLuar/gohelp-luar"
+
 	"github.com/DeprecatedLuar/agentctl/internal/commands"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		printHelp()
+		printHelp(nil)
 		os.Exit(1)
 	}
 
@@ -32,21 +34,121 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "help":
+		printHelp(args)
 	default:
-		printHelp()
+		printHelp(nil)
 		os.Exit(1)
 	}
 }
 
-func printHelp() {
-	fmt.Println("agentctl - agentic workflow tool")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  agentctl init [path]                     Initialize agent folder")
-	fmt.Println("  agentctl run [path]                      Start agent daemon")
-	fmt.Println("  agentctl chat <message> [flags]          Send message to agent")
-	fmt.Println()
-	fmt.Println("Flags for chat:")
-	fmt.Println("  --agent, -a <path>     Agent folder path (default: current directory)")
-	fmt.Println("  --session, -s <key>    Session key for memory isolation")
+func printHelp(args []string) {
+	// Build args for gohelp.Run: prepend "help" if needed
+	helpArgs := []string{"help"}
+	if len(args) > 0 {
+		helpArgs = append(helpArgs, args...)
+	}
+
+	root := gohelp.NewPage("agentctl", "agentic workflow tool").
+		Usage("agentctl <command> [args]").
+		Section("Commands",
+			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
+			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
+			gohelp.Item("chat <message>", "Send message to running agent daemon", "agentctl chat \"hello\" -a my-agent"),
+			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, interfaces, memory)"),
+		).
+		Section("Chat Flags",
+			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
+			gohelp.Item("--session, -s <key>", "Session key for memory isolation"),
+		).
+		Text("Run 'agentctl help <topic>' for detailed documentation.")
+
+	setup := gohelp.NewPage("setup", "getting started guide").
+		Section("Quick Start",
+			gohelp.Item("1. Create agent", "Initialize a new agent folder", "agentctl init my-agent"),
+			gohelp.Item("2. Configure .env", "Add API key: OPENAI_API_KEY or OPENROUTER_API_KEY"),
+			gohelp.Item("3. Edit agent.toml", "Set provider (openai/openrouter) and model name"),
+			gohelp.Item("4. Run daemon", "Start agent with configured interfaces", "agentctl run my-agent"),
+			gohelp.Item("5. Send messages", "Chat with agent via CLI", "agentctl chat \"hello\" -a my-agent"),
+		).
+		Section("Provider Setup",
+			gohelp.Item("OpenAI", "Set OPENAI_API_KEY in .env, use provider=\"openai\" in agent.toml"),
+			gohelp.Item("OpenRouter", "Set OPENROUTER_API_KEY in .env, use provider=\"openrouter\" in agent.toml"),
+		).
+		Text("Agent folder structure: agent.toml, prompt, tools/, .env, .data/")
+
+	config := gohelp.NewPage("config", "agent.toml reference").
+		Usage("agent.toml structure").
+		Section("Required Fields",
+			gohelp.Item("provider", "AI provider: \"openai\" or \"openrouter\""),
+			gohelp.Item("model", "Model name (e.g. \"gpt-4\", \"anthropic/claude-3.5-sonnet\")"),
+		).
+		Section("Optional Fields",
+			gohelp.Item("tools", "Tool names to load (empty array = auto-discover all .toml in tools/)"),
+			gohelp.Item("interfaces", "Interfaces to enable: [\"cli\"] or [\"cli\", \"telegram\"]"),
+			gohelp.Item("logging", "Enable structured logging (default: true)"),
+			gohelp.Item("memory.max_messages", "History limit per session (0 = unlimited, default: 0)"),
+		).
+		Text("Example: provider=\"openai\" model=\"gpt-4\" tools=[] interfaces=[\"cli\"]")
+
+	tools := gohelp.NewPage("tools", "creating tool definitions").
+		Usage("tools/*.toml format").
+		Section("Required Fields",
+			gohelp.Item("command", "Shell command with {{var}} placeholders", "command = \"curl wttr.in/{{city}}\""),
+		).
+		Section("Optional Fields",
+			gohelp.Item("description", "Tool description for the AI"),
+			gohelp.Item("[paramName]", "Parameter sections (not nested under [parameters]!)"),
+		).
+		Section("Parameter Fields",
+			gohelp.Item("description", "Parameter description"),
+			gohelp.Item("type", "Parameter type (default: \"string\")"),
+			gohelp.Item("required", "Whether required (default: false)"),
+		).
+		Text("Tools are executed via 'sh -c' with {{var}} substitution from AI tool calls. Files named example.toml are ignored during auto-discovery.")
+
+	prompt := gohelp.NewPage("prompt", "prompt file format").
+		Usage("prompt file structure").
+		Section("Section Types",
+			gohelp.Item("[>role]", "Static section (variables substituted at parse time)"),
+			gohelp.Item("[>>role]", "Input section with {{input}} placeholder (only one allowed)"),
+		).
+		Section("Special Syntax",
+			gohelp.Item("<path", "Load file content (relative to agent folder, supports ~/ and absolute paths)"),
+			gohelp.Item("{{var}}", "Variable placeholder (substituted in static sections, preserved in input section)"),
+		).
+		Text("The [>>role] section is required for the agent to receive messages. Static sections build conversation context.")
+
+	interfaces := gohelp.NewPage("interfaces", "interface configuration").
+		Usage("interfaces = [\"cli\", \"telegram\"]").
+		Section("CLI Interface",
+			gohelp.Item("Socket", "Unix socket at .data/agent.sock"),
+			gohelp.Item("Protocol", "JSON lines: {\"session\":\"key\",\"message\":\"text\"}"),
+			gohelp.Item("Session", "Defaults to \"default\" if not specified"),
+			gohelp.Item("Usage", "Use 'agentctl chat' command to send messages"),
+		).
+		Section("Telegram Interface",
+			gohelp.Item("Setup", "Set TELEGRAM_BOT_TOKEN in .env file"),
+			gohelp.Item("Sessions", "Session key is Telegram user ID (automatic isolation)"),
+			gohelp.Item("Features", "Typing indicators, /start command"),
+		).
+		Text("All interfaces share the same agent runtime and memory. Enable both for multi-channel access.")
+
+	memory := gohelp.NewPage("memory", "session isolation and history").
+		Usage("memory.max_messages = 0").
+		Section("Storage",
+			gohelp.Item("Format", "JSONL files in .data/memory/{sessionKey}.jsonl"),
+			gohelp.Item("Fields", "Each line: {\"role\",\"content\",\"ts\"} (timestamp)"),
+			gohelp.Item("Persistence", "History survives daemon restarts"),
+		).
+		Section("Session Isolation",
+			gohelp.Item("CLI", "Use --session flag to specify session key (default: \"default\")"),
+			gohelp.Item("Telegram", "Session key is user ID (automatic per-user isolation)"),
+		).
+		Section("Limits",
+			gohelp.Item("max_messages", "Controls history size (0 = unlimited, recommended for development)"),
+		).
+		Text("Each session has independent conversation history. Sessions are isolated by key.")
+
+	gohelp.Run(helpArgs, root, setup, config, tools, prompt, interfaces, memory)
 }
