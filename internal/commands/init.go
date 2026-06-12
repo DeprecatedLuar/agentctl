@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/DeprecatedLuar/agentctl/internal/registry"
 	"github.com/DeprecatedLuar/agentctl/internal/templates"
 )
 
@@ -67,6 +68,12 @@ func HandleInit(args []string) error {
 		}
 	}
 
-	fmt.Printf("Initialized agent folder at %s\n", absPath)
+	// Register agent in registry
+	if err := registry.Register(absPath); err != nil {
+		return fmt.Errorf("failed to register agent: %w", err)
+	}
+
+	agentName := filepath.Base(absPath)
+	fmt.Printf("Initialized agent '%s' at %s\n", agentName, absPath)
 	return nil
 }

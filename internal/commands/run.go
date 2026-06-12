@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
+	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
 const (
@@ -67,16 +69,36 @@ func HandleRun(args []string) error {
 		path = positional[0]
 	}
 
-	// Resolve to absolute path
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
+	// Resolve agent path: treat as path if contains / or starts with ., otherwise lookup by name
+	var absPath string
+	var err error
+
+	if strings.Contains(path, "/") || strings.HasPrefix(path, ".") {
+		// Treat as path
+		absPath, err = filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("invalid path: %w", err)
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			return fmt.Errorf("agent path does not exist: %s", absPath)
+		}
+	} else {
+		// Treat as name, resolve from registry
+		absPath, err = registry.Resolve(path)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Validate agent folder
 	agentTomlPath := filepath.Join(absPath, agentConfigFile)
 	if _, err := os.Stat(agentTomlPath); err != nil {
 		return fmt.Errorf("not an agent folder (%s not found)", agentConfigFile)
+	}
+
+	// Register agent to keep registry current
+	if err := registry.Register(absPath); err != nil {
+		return fmt.Errorf("failed to register agent: %w", err)
 	}
 
 	// Load config and collect validation issues

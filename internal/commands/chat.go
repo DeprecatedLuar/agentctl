@@ -7,6 +7,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
 const (
@@ -34,7 +37,7 @@ type chatResponse struct {
 
 func HandleChat(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: agentctl chat <message> [--agent path] [--session key]")
+		return fmt.Errorf("usage: agentctl chat <message> [--agent name|path] [--session key]")
 	}
 
 	// Parse arguments
@@ -47,7 +50,7 @@ func HandleChat(args []string) error {
 		switch args[i] {
 		case flagAgent, flagAgentS:
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a path", flagAgent)
+				return fmt.Errorf("%s requires a path or name", flagAgent)
 			}
 			path = args[i+1]
 			i += 2
@@ -59,7 +62,9 @@ func HandleChat(args []string) error {
 			i += 2
 		default:
 			// First non-flag argument is the message
-			message = args[i]
+			if message == "" {
+				message = args[i]
+			}
 			i++
 		}
 	}
@@ -68,10 +73,25 @@ func HandleChat(args []string) error {
 		return fmt.Errorf("message is required")
 	}
 
-	// Resolve to absolute path
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
+	// Resolve agent path: treat as path if contains / or starts with ., otherwise lookup by name
+	var absPath string
+	var err error
+
+	if strings.Contains(path, "/") || strings.HasPrefix(path, ".") {
+		// Treat as path
+		absPath, err = filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("invalid path: %w", err)
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			return fmt.Errorf("agent path does not exist: %s", absPath)
+		}
+	} else {
+		// Treat as name, resolve from registry
+		absPath, err = registry.Resolve(path)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Validate agent folder

@@ -28,6 +28,7 @@ type ToolConfig struct {
 	Command     string               `toml:"command"`
 	Description string               `toml:"description"`
 	Parameters  map[string]Parameter `toml:",inline"`
+	Path        string               // Absolute path to the .toml file
 }
 
 type Parameter struct {
@@ -45,24 +46,31 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []Validation
 	var filesToLoad []string
 
 	if len(toolNames) == 0 {
-		// Auto-discover: load all .toml files except example.toml
-		entries, err := os.ReadDir(toolsPath)
+		// Auto-discover: recursively load all .toml files except example.toml
+		err := filepath.WalkDir(toolsPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			// Skip directories
+			if d.IsDir() {
+				return nil
+			}
+			// Skip example.toml at any depth
+			if d.Name() == exampleToolFile {
+				return nil
+			}
+			// Collect .toml files with their full path
+			if strings.HasSuffix(d.Name(), tomlExtension) {
+				filesToLoad = append(filesToLoad, path)
+			}
+			return nil
+		})
 		if err != nil {
 			issues = append(issues, ValidationIssue{
 				Type:    IssueError,
 				Message: fmt.Sprintf("tools/: %v", err),
 			})
 			return nil, issues
-		}
-
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			if strings.HasSuffix(name, tomlExtension) && name != exampleToolFile {
-				filesToLoad = append(filesToLoad, name)
-			}
 		}
 	} else {
 		// Load specified tools - validate they exist
@@ -79,14 +87,12 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []Validation
 				})
 				continue
 			}
-			filesToLoad = append(filesToLoad, filename)
+			filesToLoad = append(filesToLoad, toolPath)
 		}
 	}
 
-	for _, filename := range filesToLoad {
-		toolPath := filepath.Join(toolsPath, filename)
-
-		tool, toolIssues := loadTool(toolPath, filename)
+	for _, toolPath := range filesToLoad {
+		tool, toolIssues := loadTool(toolPath, toolsPath)
 		issues = append(issues, toolIssues...)
 
 		// Only add tool if no errors occurred
@@ -105,14 +111,22 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []Validation
 	return tools, issues
 }
 
-func loadTool(path string, filename string) (ToolConfig, []ValidationIssue) {
+func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue) {
 	var issues []ValidationIssue
+
+	// Extract filename and compute relative path for error messages
+	filename := filepath.Base(path)
+	relPath := strings.TrimPrefix(path, toolsBasePath)
+	relPath = strings.TrimPrefix(relPath, string(filepath.Separator)) // Remove leading separator
+	if relPath == "" {
+		relPath = filename
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
-			Message: fmt.Sprintf("tools/%s: %v", filename, err),
+			Message: fmt.Sprintf("tools/%s: %v", relPath, err),
 		})
 		return ToolConfig{}, issues
 	}
@@ -122,13 +136,14 @@ func loadTool(path string, filename string) (ToolConfig, []ValidationIssue) {
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
-			Message: fmt.Sprintf("tools/%s: failed to parse TOML: %v", filename, err),
+			Message: fmt.Sprintf("tools/%s: failed to parse TOML: %v", relPath, err),
 		})
 		return ToolConfig{}, issues
 	}
 
 	tool := ToolConfig{
 		Name:       strings.TrimSuffix(filename, tomlExtension),
+		Path:       path, // Store absolute path
 		Parameters: make(map[string]Parameter),
 	}
 
@@ -144,7 +159,7 @@ func loadTool(path string, filename string) (ToolConfig, []ValidationIssue) {
 	if tool.Command == "" {
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
-			Message: fmt.Sprintf("tools/%s: command field is required", filename),
+			Message: fmt.Sprintf("tools/%s: command field is required", relPath),
 		})
 	}
 
@@ -169,7 +184,7 @@ func loadTool(path string, filename string) (ToolConfig, []ValidationIssue) {
 			// Warn if parameter missing description
 			issues = append(issues, ValidationIssue{
 				Type:    IssueWarning,
-				Message: fmt.Sprintf("tools/%s: parameter '%s' missing description", filename, key),
+				Message: fmt.Sprintf("tools/%s: parameter '%s' missing description", relPath, key),
 			})
 		}
 

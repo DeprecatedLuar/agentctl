@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
@@ -26,7 +27,7 @@ const (
 )
 
 // ExecuteTool runs a tool with the given arguments
-func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, logger *slog.Logger, verbose bool, debug bool) string {
+func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, logger *slog.Logger, verbose bool, debug bool) string {
 	// Substitute variables in the command
 	cmd := tool.Command
 	for key, value := range args {
@@ -47,6 +48,15 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, logger *s
 
 	// Execute via shell
 	execCmd := exec.Command(shellCmd, shellCmdFlag, cmd)
+
+	// Set working directory to tool's directory (so tools can reference local files with ./)
+	// Falls back to agent folder if tool has no path (shouldn't happen in practice)
+	if tool.Path != "" {
+		execCmd.Dir = filepath.Dir(tool.Path)
+	} else {
+		execCmd.Dir = agentFolder
+	}
+
 	var stdout, stderr bytes.Buffer
 	execCmd.Stdout = &stdout
 	execCmd.Stderr = &stderr
