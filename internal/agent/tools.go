@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	debugpkg "github.com/DeprecatedLuar/agentctl/internal/debug"
 )
 
 const (
@@ -73,6 +74,11 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 	}
 
 	// Log tool result
+	result := stdout.String()
+	if err != nil {
+		result = fmt.Sprintf(exitCodeFormat, exitCode, stderr.String())
+	}
+
 	if logger != nil {
 		msg := fmt.Sprintf("tool %s completed", tool.Name)
 		if verbose {
@@ -88,13 +94,14 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 				"stderr_len", stderr.Len(),
 			)
 		}
+
+		// Enhanced debug logging
+		if debug {
+			debugpkg.LogToolExecution(logger, tool.Name, cmd, result, exitCode)
+		}
 	}
 
-	if err != nil {
-		return fmt.Sprintf(exitCodeFormat, exitCode, stderr.String())
-	}
-
-	return stdout.String()
+	return result
 }
 
 // FindTool finds a tool by name in the tools list

@@ -115,8 +115,8 @@ func HandleRun(args []string) error {
 		allIssues = append(allIssues, toolIssues...)
 	}
 
-	// Load prompt
-	prompt, promptIssues := config.Parse(absPath, map[string]string{})
+	// Load prompt for validation
+	_, promptIssues := config.Parse(absPath, map[string]string{})
 	allIssues = append(allIssues, promptIssues...)
 
 	// Print validation results
@@ -175,9 +175,6 @@ func HandleRun(args []string) error {
 	// Create runner
 	runner := &interfaces.Runner{
 		AgentFolder: absPath,
-		Config:      agentCfg,
-		Tools:       tools,
-		Prompt:      prompt,
 		Logger:      lg,
 		Verbose:     verbose,
 		Debug:       debug,

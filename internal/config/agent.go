@@ -49,8 +49,9 @@ type AgentConfig struct {
 	Tools      []string     `toml:"tools"`
 	Interfaces []string     `toml:"interfaces"`
 	Memory     MemoryConfig `toml:"memory"`
-	Audio      *AudioConfig `toml:"audio"` // Optional
-	Logging    *bool        `toml:"logging"` // Default: true if nil
+	Audio      *AudioConfig `toml:"audio"`      // Optional
+	Logging    *bool        `toml:"logging"`    // Default: true if nil
+	DebugCalls *bool        `toml:"debug_calls"` // Default: false if nil, writes full request/response to .data/debug-calls/
 }
 
 type MemoryConfig struct {
@@ -156,4 +157,11 @@ func (c *AgentConfig) IsLoggingEnabled() bool {
 		return true // Default
 	}
 	return *c.Logging
+}
+
+func (c *AgentConfig) IsDebugCallsEnabled() bool {
+	if c.DebugCalls == nil {
+		return false // Default
+	}
+	return *c.DebugCalls
 }

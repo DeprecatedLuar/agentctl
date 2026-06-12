@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/debug"
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -27,9 +28,11 @@ const (
 
 // OpenRouterProvider implements Provider for OpenRouter
 type OpenRouterProvider struct {
-	client openai.Client
-	model  string
-	logger *slog.Logger
+	client          openai.Client
+	model           string
+	logger          *slog.Logger
+	agentFolder     string
+	debugCallsEnabled bool
 }
 
 // NewOpenRouterProvider creates an OpenRouter provider
@@ -49,9 +52,11 @@ func NewOpenRouterProvider(cfg *config.AgentConfig, agentFolder string, logger *
 	)
 
 	return &OpenRouterProvider{
-		client: client,
-		model:  cfg.Model,
-		logger: logger,
+		client:            client,
+		model:             cfg.Model,
+		logger:            logger,
+		agentFolder:       agentFolder,
+		debugCallsEnabled: cfg.IsDebugCallsEnabled(),
 	}, nil
 }
 
@@ -88,15 +93,26 @@ func (p *OpenRouterProvider) SendMessages(messages []Message, tools []config.Too
 		params.Tools = chatTools
 	}
 
-	// Log API call
+	// Log API call with debug details
 	if p.logger != nil {
 		p.logger.Debug("api call", "provider", openrouterProvider, "model", p.model)
+
+		// Convert messages for debug logging
+		debugMessages := make([]debug.Message, len(messages))
+		for i, msg := range messages {
+			debugMessages[i] = debug.Message{
+				Role:    string(msg.Role),
+				Content: msg.Content,
+			}
+		}
+		debug.LogRequest(p.logger, debugMessages, tools, openrouterProvider, p.model, "", p.agentFolder, p.debugCallsEnabled)
 	}
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		if p.logger != nil {
 			p.logger.Error("api error", "provider", openrouterProvider, "error", err)
+			debug.LogResponse(p.logger, "", nil, err, p.agentFolder, p.debugCallsEnabled)
 		}
 		return "", nil, fmt.Errorf("%s api error: %w", openrouterProvider, err)
 	}
@@ -122,6 +138,18 @@ func (p *OpenRouterProvider) SendMessages(messages []Message, tools []config.Too
 				Args: args,
 			}
 		}
+	}
+
+	// Log response with debug details
+	if p.logger != nil {
+		debugToolCalls := make([]debug.ToolCall, len(toolCalls))
+		for i, tc := range toolCalls {
+			debugToolCalls[i] = debug.ToolCall{
+				Name: tc.Name,
+				Args: tc.Args,
+			}
+		}
+		debug.LogResponse(p.logger, content, debugToolCalls, nil, p.agentFolder, p.debugCallsEnabled)
 	}
 
 	return content, toolCalls, nil
