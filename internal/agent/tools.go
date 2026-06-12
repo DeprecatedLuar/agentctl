@@ -1,30 +1,22 @@
 package agent
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	debugpkg "github.com/DeprecatedLuar/agentctl/internal/debug"
+	"github.com/DeprecatedLuar/agentctl/internal/shell"
 )
 
 const (
 	// Placeholder format
 	placeholderFormat = "{{%s}}"
 
-	// Shell execution
-	shellCmd     = "sh"
-	shellCmdFlag = "-c"
-
 	// Error format
 	exitCodeFormat = "exit %d: %s"
-
-	// Default exit code on error
-	defaultExitCode = 1
 )
 
 // ExecuteTool runs a tool with the given arguments
@@ -47,36 +39,21 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		}
 	}
 
-	// Execute via shell
-	execCmd := exec.Command(shellCmd, shellCmdFlag, cmd)
-
-	// Set working directory to tool's directory (so tools can reference local files with ./)
+	// Determine working directory
+	// Tools run in their own directory (so they can reference local files with ./)
 	// Falls back to agent folder if tool has no path (shouldn't happen in practice)
+	workDir := agentFolder
 	if tool.Path != "" {
-		execCmd.Dir = filepath.Dir(tool.Path)
-	} else {
-		execCmd.Dir = agentFolder
+		workDir = filepath.Dir(tool.Path)
 	}
 
-	var stdout, stderr bytes.Buffer
-	execCmd.Stdout = &stdout
-	execCmd.Stderr = &stderr
+	// Execute via shell
+	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir)
 
-	err := execCmd.Run()
-
-	exitCode := 0
+	// Format result
+	result := stdout
 	if err != nil {
-		// Get exit code
-		exitCode = defaultExitCode
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		}
-	}
-
-	// Log tool result
-	result := stdout.String()
-	if err != nil {
-		result = fmt.Sprintf(exitCodeFormat, exitCode, stderr.String())
+		result = fmt.Sprintf(exitCodeFormat, exitCode, stderr)
 	}
 
 	if logger != nil {
@@ -84,14 +61,14 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		if verbose {
 			logger.Info(msg,
 				"exit_code", exitCode,
-				"stdout", stdout.String(),
-				"stderr", stderr.String(),
+				"stdout", stdout,
+				"stderr", stderr,
 			)
 		} else {
 			logger.Info(msg,
 				"exit_code", exitCode,
-				"stdout_len", stdout.Len(),
-				"stderr_len", stderr.Len(),
+				"stdout_len", len(stdout),
+				"stderr_len", len(stderr),
 			)
 		}
 
