@@ -128,18 +128,8 @@ func (p *OpenAIProvider) SendMessages(messages []Message, tools []config.ToolCon
 }
 
 func convertToolToOpenAI(tool *config.ToolConfig) openai.ChatCompletionToolParam {
-	properties := make(map[string]interface{})
-	required := []string{}
-
-	for name, param := range tool.Parameters {
-		properties[name] = map[string]interface{}{
-			"type":        param.Type,
-			"description": param.Description,
-		}
-		if param.Required {
-			required = append(required, name)
-		}
-	}
+	// Use shared converter (filters disabled and return-override parameters)
+	properties, required := config.ConvertToolParameters(tool)
 
 	parametersSchema := map[string]interface{}{
 		"type":       schemaTypeObject,

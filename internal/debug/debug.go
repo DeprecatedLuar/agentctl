@@ -242,12 +242,17 @@ func buildToolNames(tools []config.ToolConfig) string {
 	return "[" + strings.Join(names, ", ") + "]"
 }
 
-// convertTools converts config.ToolConfig to ToolDefinition for JSON output
+// convertTools converts config.ToolConfig to ToolDefinition for JSON output.
+// Applies same filtering as provider converters (excludes disabled and return-override params).
 func convertTools(tools []config.ToolConfig) []ToolDefinition {
 	result := make([]ToolDefinition, len(tools))
 	for i, tool := range tools {
 		params := make(map[string]ParameterDefinition)
 		for name, param := range tool.Parameters {
+			// Skip disabled parameters OR parameters with return override (match AI filtering)
+			if !param.Enabled || param.Return != "" {
+				continue
+			}
 			params[name] = ParameterDefinition{
 				Type:        param.Type,
 				Description: param.Description,

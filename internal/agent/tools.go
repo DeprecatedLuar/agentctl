@@ -8,6 +8,7 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	debugpkg "github.com/DeprecatedLuar/agentctl/internal/debug"
+	"github.com/DeprecatedLuar/agentctl/internal/directives"
 	"github.com/DeprecatedLuar/agentctl/internal/shell"
 )
 
@@ -21,12 +22,38 @@ const (
 
 // ExecuteTool runs a tool with the given arguments
 func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, logger *slog.Logger, verbose bool, debug bool) string {
+	// Build substitution map: Process return overrides with directive support
+	substitutions := make(map[string]string)
+
+	// First, add AI-provided arguments
+	for key, value := range args {
+		substitutions[key] = fmt.Sprintf("%v", value)
+	}
+
+	// Then, process return overrides (takes precedence over AI args)
+	for paramName, param := range tool.Parameters {
+		// Hard disable: if parameter is disabled, don't use it at all (even if return is set)
+		if !param.Enabled {
+			continue
+		}
+
+		// Process return override if set
+		if param.Return != "" {
+			// Process directives in return value ({{file:}} and {{exec:}})
+			processedValue, err := directives.ProcessDirectives(param.Return, agentFolder)
+			if err != nil {
+				// Directive processing failed - return formatted error (match tool error format)
+				return fmt.Sprintf(exitCodeFormat, 1, fmt.Sprintf("return directive failed for '%s': %v", paramName, err))
+			}
+			substitutions[paramName] = processedValue
+		}
+	}
+
 	// Substitute variables in the command
 	cmd := tool.Command
-	for key, value := range args {
+	for key, value := range substitutions {
 		placeholder := fmt.Sprintf(placeholderFormat, key)
-		valueStr := fmt.Sprintf("%v", value)
-		cmd = strings.ReplaceAll(cmd, placeholder, valueStr)
+		cmd = strings.ReplaceAll(cmd, placeholder, value)
 	}
 
 	// Log tool execution

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/DeprecatedLuar/agentctl/internal/directives"
 )
 
 const (
@@ -35,6 +36,8 @@ type Parameter struct {
 	Description string `toml:"description"`
 	Type        string `toml:"type"`
 	Required    bool   `toml:"required"`
+	Enabled     bool   `toml:"enabled"`
+	Return      string `toml:"return"` // Override value with directive support (hides from AI)
 }
 
 func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []ValidationIssue) {
@@ -175,7 +178,8 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 		}
 
 		param := Parameter{
-			Type: defaultParameterType, // default
+			Type:    defaultParameterType, // default
+			Enabled: true,                 // default enabled
 		}
 
 		if desc, ok := paramMap["description"].(string); ok {
@@ -194,9 +198,47 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 		if req, ok := paramMap["required"].(bool); ok {
 			param.Required = req
 		}
+		if enabled, ok := paramMap["enabled"].(bool); ok {
+			param.Enabled = enabled
+		}
+		if ret, ok := paramMap["return"].(string); ok {
+			param.Return = ret
+			// Validate directive syntax (fail fast on unknown directives)
+			if err := directives.ValidateSyntax(ret); err != nil {
+				issues = append(issues, ValidationIssue{
+					Type:    IssueError,
+					Message: fmt.Sprintf("tools/%s: parameter '%s' return: %v", relPath, key, err),
+				})
+			}
+		}
 
 		tool.Parameters[key] = param
 	}
 
 	return tool, issues
+}
+
+// ConvertToolParameters converts tool parameters to OpenAI-compatible schema format.
+// Filters out disabled parameters and parameters with return overrides (both are hidden from AI).
+// Returns properties map and required parameter names slice.
+func ConvertToolParameters(tool *ToolConfig) (map[string]interface{}, []string) {
+	properties := make(map[string]interface{})
+	required := []string{}
+
+	for name, param := range tool.Parameters {
+		// Skip disabled parameters OR parameters with return override (both are blackbox to AI)
+		if !param.Enabled || param.Return != "" {
+			continue
+		}
+
+		properties[name] = map[string]interface{}{
+			"type":        param.Type,
+			"description": param.Description,
+		}
+		if param.Required {
+			required = append(required, name)
+		}
+	}
+
+	return properties, required
 }
