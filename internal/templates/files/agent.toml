@@ -1,5 +1,5 @@
-provider = ""
-model = ""
+provider = "openrouter"
+model = "openrouter/free"
 tools = []
 interfaces = ["cli"]
 logging = true

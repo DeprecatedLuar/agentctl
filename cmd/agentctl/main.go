@@ -34,6 +34,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "getagent":
+		if err := commands.HandleGetAgent(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "models":
 		if err := commands.HandleModels(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -60,6 +65,7 @@ func printHelp(args []string) {
 			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
 			gohelp.Item("chat <message>", "Send message to running agent daemon", "agentctl chat \"hello\" -a my-agent"),
+			gohelp.Item("getagent", "Print current agent name", "agentctl getagent"),
 			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
 			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, interfaces, memory)"),
 		).

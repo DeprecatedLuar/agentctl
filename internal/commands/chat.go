@@ -5,23 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
 const (
-	// File and directory names (shared with run.go)
-	chatAgentConfigFile = "agent.toml"
-	chatDataDir         = ".data"
-	socketFilename      = "agent.sock"
+	// File and directory names
+	chatDataDir  = ".data"
+	socketFilename = "agent.sock"
 
 	// Flags
-	flagAgent   = "--agent"
-	flagAgentS  = "-a"
-	flagSession = "--session"
+	flagAgent    = "--agent"
+	flagAgentS   = "-a"
+	flagSession  = "--session"
 	flagSessionS = "-s"
 )
 
@@ -73,31 +70,10 @@ func HandleChat(args []string) error {
 		return fmt.Errorf("message is required")
 	}
 
-	// Resolve agent path: treat as path if contains / or starts with ., otherwise lookup by name
-	var absPath string
-	var err error
-
-	if strings.Contains(path, "/") || strings.HasPrefix(path, ".") {
-		// Treat as path
-		absPath, err = filepath.Abs(path)
-		if err != nil {
-			return fmt.Errorf("invalid path: %w", err)
-		}
-		if _, err := os.Stat(absPath); err != nil {
-			return fmt.Errorf("agent path does not exist: %s", absPath)
-		}
-	} else {
-		// Treat as name, resolve from registry
-		absPath, err = registry.Resolve(path)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Validate agent folder
-	agentTomlPath := filepath.Join(absPath, chatAgentConfigFile)
-	if _, err := os.Stat(agentTomlPath); err != nil {
-		return fmt.Errorf("not an agent folder (%s not found)", chatAgentConfigFile)
+	// Resolve agent path
+	absPath, err := registry.ResolveAgentPath(path)
+	if err != nil {
+		return err
 	}
 
 	// Connect to socket

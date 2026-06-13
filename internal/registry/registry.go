@@ -185,3 +185,69 @@ func writeRegistry(registryPath string, paths []string) error {
 
 	return nil
 }
+
+// ResolveAgentPath resolves an agent name or path to an absolute path.
+// If nameOrPath contains "/" or starts with ".", it's treated as a path.
+// Otherwise, it's treated as a name and resolved from the registry.
+// Returns error if path doesn't exist or is not a valid agent folder.
+func ResolveAgentPath(nameOrPath string) (string, error) {
+	const agentTomlFile = "agent.toml"
+
+	var absPath string
+	var err error
+
+	// Path detection: contains "/" or starts with "."
+	if strings.Contains(nameOrPath, "/") || strings.HasPrefix(nameOrPath, ".") {
+		// Treat as path
+		absPath, err = filepath.Abs(nameOrPath)
+		if err != nil {
+			return "", fmt.Errorf("invalid path: %w", err)
+		}
+		if _, err := os.Stat(absPath); err != nil {
+			return "", fmt.Errorf("agent path does not exist: %s", absPath)
+		}
+	} else {
+		// Treat as name, resolve from registry
+		absPath, err = Resolve(nameOrPath)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Validate agent folder
+	agentTomlPath := filepath.Join(absPath, agentTomlFile)
+	if _, err := os.Stat(agentTomlPath); err != nil {
+		return "", fmt.Errorf("not an agent folder (%s not found)", agentTomlFile)
+	}
+
+	return absPath, nil
+}
+
+// FindAgentInPath walks upward from the current directory to find an agent folder.
+// Returns the absolute path to the agent folder containing agent.toml.
+// Returns error if no agent folder is found in the directory tree.
+func FindAgentInPath() (string, error) {
+	const agentTomlFile = "agent.toml"
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	dir := cwd
+	for {
+		// Check if agent.toml exists in current directory
+		agentTomlPath := filepath.Join(dir, agentTomlFile)
+		if _, err := os.Stat(agentTomlPath); err == nil {
+			return dir, nil
+		}
+
+		// Move up one directory
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root without finding agent.toml
+			return "", fmt.Errorf("not in an agent folder (no %s found in directory tree)", agentTomlFile)
+		}
+		dir = parent
+	}
+}
