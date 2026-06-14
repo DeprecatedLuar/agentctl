@@ -54,7 +54,10 @@ cp agentctl ~/bin/  # or /usr/local/bin
 
 **`chat` command:**
 - `-a, --agent <path>` - Agent folder path (default: current dir)
-- `-s, --session <key>` - Session key for memory isolation (default: "default")
+- `-u, --user <id>` - User ID for session (default: system username)
+- `-s, --session <id>` - Session ID (default: last session or new)
+- `--debug` - Show session file path in output
+- Env vars: `AGENTCTL_USER`, `AGENTCTL_SESSION` (flags take priority)
 
 **`models` command:**
 - `--free` - Show only free models
@@ -69,15 +72,21 @@ cp agentctl ~/bin/  # or /usr/local/bin
 
 ```
 my-agent/
-├── agent.toml          # Provider, model, interfaces, memory config
-├── prompt              # Prompt template with sections
-├── tools/              # Tool definitions (*.toml)
-│   └── example.toml    # Example tool (excluded from auto-load)
-├── .env                # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
-└── .data/              # Runtime data (auto-created)
-    ├── agent.sock      # Unix socket for CLI interface
-    ├── memory/         # Conversation history (per-session JSONL)
-    └── debug-calls/    # Full request/response JSON (if debug_calls=true)
+├── config/
+│   ├── agent.toml          # Provider, model, interfaces, memory config
+│   └── identities.toml     # Identity linking (multiple contacts per user)
+├── prompts/
+│   └── default             # Prompt template with sections
+├── tools/                  # Tool definitions (*.toml)
+│   └── example.toml        # Example tool (excluded from auto-load)
+├── .env                    # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
+└── .data/                  # Runtime data (auto-created)
+    ├── agent.sock          # Unix socket for CLI interface
+    ├── sessions/           # Conversation history (per-user, per-session)
+    │   └── {userID}/
+    │       ├── {sessionID}.jsonl
+    │       └── .last_session
+    └── debug-calls/        # Full request/response JSON (if debug_calls=true)
 ```
 
 ## Configuration
@@ -306,14 +315,19 @@ agentctl chat "analyze logs"
 # Specify agent folder
 agentctl chat "hello" -a ~/agents/my-agent
 
-# Use specific session
-agentctl chat "continue conversation" -a my-agent -s session-123
+# Use specific user and session
+agentctl chat "continue conversation" -u alice -s 20260614_150000_abc123
+
+# Debug mode (shows session file path)
+agentctl chat "test" --debug
 ```
 
-**Session isolation:**
-- Each session has independent conversation history
-- Default session key: "default"
-- Memory stored in `.data/memory/{session}.jsonl`
+**Session management:**
+- Sessions are organized by user ID (default: system username)
+- Each user can have multiple sessions
+- Session storage: `.data/sessions/{userID}/{sessionID}.jsonl`
+- `.last_session` tracks most recent session per interface
+- Use `--user` and `--session` flags for explicit control
 
 ### Telegram Interface
 
@@ -330,12 +344,41 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 ```
 
 **Features:**
-- Per-user sessions (session key = user ID)
+- Per-user sessions (automatic user ID from Telegram)
 - Typing indicators during processing
 - `/start` command support
 - Voice message transcription (requires `[audio]` config)
 
-Both interfaces share the same agent runtime and memory.
+Both interfaces share the same agent runtime and session storage.
+
+### Identity Linking
+
+Link multiple contact points to a single user identity in `config/identities.toml`:
+
+```toml
+[[identity]]
+id = "alice"
+contacts = ["cli:alice", "telegram:123456789"]
+
+[[identity]]
+id = "bob"
+contacts = ["telegram:987654321"]
+```
+
+**Benefits:**
+- Unified conversation history across interfaces
+- CLI and Telegram messages in same session
+- Automatic migration from unlinked to linked contacts
+
+**Contact format:** `interface:platformID`
+- CLI: `cli:username` (system username)
+- Telegram: `telegram:userID` (Telegram user ID)
+
+**Migration:**
+- Startup: Migrates all unlinked contacts on daemon start
+- Lazy: Auto-migrates on first message after adding to identity
+- No daemon restart needed when updating identities.toml
+- Sessions automatically consolidated into identity folder
 
 ## Advanced Features
 
@@ -393,13 +436,13 @@ Auto-cleanup keeps last 10 files. Inspect with:
 cat .data/debug-calls/*.json | jq .
 ```
 
-### Memory System
+### Session Management
 
-Conversation history stored per-session in `.data/memory/{session}.jsonl`:
+Conversation history organized by user and session in `.data/sessions/{userID}/{sessionID}.jsonl`:
 
 ```jsonl
-{"role":"user","content":"hello","ts":"2026-06-14T15:04:05Z"}
-{"role":"assistant","content":"Hi! How can I help?","ts":"2026-06-14T15:04:06Z"}
+{"role":"user","content":"hello","timestamp":"2026-06-14T15:04:05Z"}
+{"role":"assistant","content":"Hi! How can I help?","timestamp":"2026-06-14T15:04:06Z"}
 ```
 
 **Configuration:**
@@ -410,14 +453,17 @@ max_messages = 0  # 0 = unlimited (recommended for development)
                   # N = keep last N messages per session
 ```
 
-**Session keys:**
-- CLI: "default" (or specify with `--session` flag)
-- Telegram: User ID
+**Session organization:**
+- User ID: System username (CLI) or Telegram user ID
+- Session ID: `YYYYMMDD_HHMMSS_<6-hex>` format
+- `.last_session`: Tracks most recent session per interface
+- Identity linking: Multiple contacts share same user folder
 
 **Persistence:**
 - History survives daemon restarts
-- Each session isolated
+- Sessions isolated by user and session ID
 - JSONL format (plain text, one message per line)
+- Automatic migration when contacts are linked to identities
 
 ### Manual Tool Execution
 
@@ -552,7 +598,7 @@ agentctl run → daemon starts → loads interfaces from agent.toml
 - **internal/providers/llm** - AI provider abstraction (openai, openrouter, generic)
 - **internal/agent** - Orchestration (agentic loop, tool execution)
 - **internal/interfaces** - Interface abstraction (CLI, Telegram)
-- **internal/memory** - JSONL persistence (per-session history)
+- **internal/session** - Session management (identity linking, migration, JSONL persistence)
 - **internal/shell** - Pure shell execution utility
 - **internal/directives** - Directive processor ({{file:}}, {{exec:}})
 
