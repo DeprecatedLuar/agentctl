@@ -140,56 +140,6 @@ func TestProcessDirectives_PreserveVariables(t *testing.T) {
 	}
 }
 
-func TestValidateSyntax(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		expectErr bool
-	}{
-		{
-			name:      "valid file directive",
-			input:     "{{file:./test.txt}}",
-			expectErr: false,
-		},
-		{
-			name:      "valid exec directive",
-			input:     "{{exec:./script.sh}}",
-			expectErr: false,
-		},
-		{
-			name:      "variable placeholder (not a directive)",
-			input:     "{{variable}}",
-			expectErr: false,
-		},
-		{
-			name:      "unknown directive type",
-			input:     "{{unknown:./file.txt}}",
-			expectErr: true,
-		},
-		{
-			name:      "escaped directive (should not error)",
-			input:     `\{{file:test.txt}}`,
-			expectErr: false,
-		},
-		{
-			name:      "mixed valid and invalid",
-			input:     "{{file:a}} and {{bad:b}}",
-			expectErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSyntax(tt.input)
-			if tt.expectErr && err == nil {
-				t.Error("expected error, got none")
-			}
-			if !tt.expectErr && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		})
-	}
-}
 
 func TestProcessDirectives_ErrorHandling(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -212,6 +162,24 @@ func TestProcessDirectives_ErrorHandling(t *testing.T) {
 			input:         "{{unknown:./file.txt}}",
 			expectError:   true,
 			errorContains: "unknown directive type",
+		},
+		{
+			name:          "empty path",
+			input:         "{{file:}}",
+			expectError:   true,
+			errorContains: "empty path not allowed",
+		},
+		{
+			name:          "space after colon",
+			input:         "{{exec: ./script.sh}}",
+			expectError:   true,
+			errorContains: "space after colon not allowed",
+		},
+		{
+			name:          "space before closing braces",
+			input:         "{{file:./test.txt }}",
+			expectError:   true,
+			errorContains: "space before closing braces not allowed",
 		},
 		{
 			name:           "exec script not found",

@@ -44,6 +44,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "toolrun":
+		if err := commands.HandleToolRun(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "help":
 		printHelp(args)
 	default:
@@ -65,6 +70,7 @@ func printHelp(args []string) {
 			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
 			gohelp.Item("chat <message>", "Send message to running agent daemon", "agentctl chat \"hello\" -a my-agent"),
+			gohelp.Item("toolrun <name>", "Execute a tool manually with parameters", "agentctl toolrun create_schedule --name=test --cron=\"0 * * * *\" --message=\"Test\""),
 			gohelp.Item("getagent", "Print current agent name", "agentctl getagent"),
 			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
 			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, interfaces, memory)"),
@@ -72,6 +78,10 @@ func printHelp(args []string) {
 		Section("Chat Flags",
 			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
 			gohelp.Item("--session, -s <key>", "Session key for memory isolation"),
+		).
+		Section("Toolrun Flags",
+			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
+			gohelp.Item("--<param>=<value>", "Tool parameters (e.g., --name=test --cron=\"0 * * * *\")"),
 		).
 		Section("Models Flags",
 			gohelp.Item("--free", "Show only free models"),

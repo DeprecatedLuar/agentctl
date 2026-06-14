@@ -37,60 +37,6 @@ func ProcessDirectives(content, agentPath string) (string, error) {
 	return processDirectivesWithDepth(content, agentPath, 0)
 }
 
-// ValidateSyntax checks if content contains valid directive syntax.
-// Returns error if unknown directive types are found.
-func ValidateSyntax(content string) error {
-	pos := 0
-	for {
-		// Find next {{
-		start := strings.Index(content[pos:], prefix)
-		if start == -1 {
-			break
-		}
-		start += pos
-
-		// Check for escape sequence
-		if start > 0 && content[start-1] == byte(escapeChar) {
-			pos = start + len(prefix)
-			continue
-		}
-
-		// Find closing }}
-		endOffset := strings.Index(content[start+len(prefix):], suffix)
-		if endOffset == -1 {
-			// Unclosed directive - but this is fine, might be literal text
-			break
-		}
-		end := start + len(prefix) + endOffset
-
-		// Extract inner content
-		inner := content[start+len(prefix) : end]
-
-		// Check if this is a directive (contains :)
-		colonIdx := strings.IndexByte(inner, byte(directiveSep))
-		if colonIdx == -1 {
-			// No colon - this is a variable placeholder, not a directive
-			pos = end + len(suffix)
-			continue
-		}
-
-		// Extract directive type
-		directiveType := inner[:colonIdx]
-
-		// Validate directive type
-		switch directiveType {
-		case "file", "exec":
-			// Valid directive
-		default:
-			return fmt.Errorf("unknown directive type: %s (valid types: file, exec)", directiveType)
-		}
-
-		pos = end + len(suffix)
-	}
-
-	return nil
-}
-
 // processDirectivesWithDepth handles directives with recursion depth limit
 func processDirectivesWithDepth(content, agentPath string, depth int) (string, error) {
 	if depth > maxDepth {
@@ -151,6 +97,19 @@ func processDirectivesWithDepth(content, agentPath string, depth int) (string, e
 		hasDirectives = true
 		directiveType := inner[:colonIdx]
 		directivePath := inner[colonIdx+1:]
+
+		// Validate path syntax (strict: no spaces, no empty paths)
+		if len(directivePath) == 0 {
+			return "", fmt.Errorf("{{%s:}}: empty path not allowed", directiveType)
+		}
+		if directivePath[0] == ' ' {
+			return "", fmt.Errorf("{{%s:%s}}: invalid syntax, space after colon not allowed (use {{%s:%s}})",
+				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+		}
+		if directivePath[len(directivePath)-1] == ' ' {
+			return "", fmt.Errorf("{{%s:%s}}: invalid syntax, space before closing braces not allowed (use {{%s:%s}})",
+				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+		}
 
 		var replacement string
 		var err error
@@ -232,22 +191,9 @@ func loadFile(path, agentPath string) (string, error) {
 
 // execScript executes a script and returns stdout or formatted error
 func execScript(path, agentPath string) (string, error) {
-	// Resolve script path
-	var scriptPath string
-	if strings.HasPrefix(path, homeDirPrefix) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		scriptPath = filepath.Join(home, path[len(homeDirPrefix):])
-	} else if filepath.IsAbs(path) {
-		scriptPath = path
-	} else {
-		scriptPath = filepath.Join(agentPath, path)
-	}
+	// Execute command - shell handles all path resolution (./script.sh, /abs/path, commands in PATH, ~/home)
+	stdout, stderr, exitCode, execErr := shell.Execute(path, agentPath)
 
-	// Execute script (working dir is always agentPath)
-	stdout, stderr, exitCode, execErr := shell.Execute(scriptPath, agentPath)
 	if execErr != nil {
 		// Format error same as tool errors: "exit N: stderr"
 		return fmt.Sprintf("exit %d: %s", exitCode, stderr), nil

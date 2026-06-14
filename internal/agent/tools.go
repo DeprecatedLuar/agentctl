@@ -27,7 +27,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 
 	// First, add AI-provided arguments
 	for key, value := range args {
-		substitutions[key] = fmt.Sprintf("%v", value)
+		substitutions[key] = strings.TrimSpace(fmt.Sprintf("%v", value))
 	}
 
 	// Then, process return overrides (takes precedence over AI args)
@@ -45,7 +45,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 				// Directive processing failed - return formatted error (match tool error format)
 				return fmt.Sprintf(exitCodeFormat, 1, fmt.Sprintf("return directive failed for '%s': %v", paramName, err))
 			}
-			substitutions[paramName] = processedValue
+			substitutions[paramName] = strings.TrimSpace(processedValue)
 		}
 	}
 
