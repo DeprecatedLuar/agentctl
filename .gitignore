@@ -67,7 +67,7 @@ lerna-debug.log*
 readme.reference.md
 README-draft.md
 vision.md
-CLAUDE.md
+# CLAUDE.md
 other/blueprint/
 implementation-plan.md
 implementation-history.md
