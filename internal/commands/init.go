@@ -3,20 +3,27 @@ package commands
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 	"github.com/DeprecatedLuar/agentctl/internal/templates"
 )
 
 const (
-	// File and directory names
-	initAgentConfigFile = "agent.toml"
-	promptFile          = "prompt"
-	toolsDir            = "tools"
-	envFile             = ".env"
-	gitignoreFile       = ".gitignore"
-	toolExampleFile     = "example.toml"
+	// Directory names
+	configDir  = "config"
+	promptsDir = "prompts"
+	toolsDir   = "tools"
+
+	// File names
+	initAgentConfig   = "agent.toml"
+	identitiesFile    = "identities.toml"
+	defaultPromptFile = "default"
+	initEnvFile       = ".env"
+	initGitignoreFile = ".gitignore"
+	toolExampleFile   = "example.toml"
 
 	// File permissions
 	dirPermissions  = 0755
@@ -35,30 +42,41 @@ func HandleInit(args []string) error {
 		return fmt.Errorf("invalid path: %w", err)
 	}
 
-	// Check if already initialized
-	agentTomlPath := filepath.Join(absPath, initAgentConfigFile)
+	// Check if already initialized (check for config/agent.toml)
+	agentTomlPath := filepath.Join(absPath, configDir, initAgentConfig)
 	if _, err := os.Stat(agentTomlPath); err == nil {
-		return fmt.Errorf("folder already initialized (%s exists)", initAgentConfigFile)
+		return fmt.Errorf("folder already initialized (%s exists)", filepath.Join(configDir, initAgentConfig))
 	}
+
+	// Get current username for template substitution
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+	username := currentUser.Username
 
 	// Create directory if doesn't exist
 	if err := os.MkdirAll(absPath, dirPermissions); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Create tools directory
-	toolsPath := filepath.Join(absPath, toolsDir)
-	if err := os.MkdirAll(toolsPath, dirPermissions); err != nil {
-		return fmt.Errorf("failed to create %s directory: %w", toolsDir, err)
+	// Create subdirectories
+	dirs := []string{configDir, promptsDir, toolsDir}
+	for _, dir := range dirs {
+		dirPath := filepath.Join(absPath, dir)
+		if err := os.MkdirAll(dirPath, dirPermissions); err != nil {
+			return fmt.Errorf("failed to create %s directory: %w", dir, err)
+		}
 	}
 
 	// Write template files
 	files := map[string]string{
-		initAgentConfigFile:                 templates.AgentToml,
-		promptFile:                          templates.Prompt,
-		filepath.Join(toolsDir, toolExampleFile): templates.ToolExample,
-		envFile:                             templates.EnvTemplate,
-		gitignoreFile:                       templates.Gitignore,
+		filepath.Join(configDir, initAgentConfig):    templates.AgentToml,
+		filepath.Join(configDir, identitiesFile):     substituteUsername(templates.IdentitiesToml, username),
+		filepath.Join(promptsDir, defaultPromptFile): templates.Prompt,
+		filepath.Join(toolsDir, toolExampleFile):     templates.ToolExample,
+		initEnvFile:                                   templates.EnvTemplate,
+		initGitignoreFile:                             templates.Gitignore,
 	}
 
 	for name, content := range files {
@@ -76,4 +94,9 @@ func HandleInit(args []string) error {
 	agentName := filepath.Base(absPath)
 	fmt.Printf("Initialized agent '%s' at %s\n", agentName, absPath)
 	return nil
+}
+
+// substituteUsername replaces {{username}} placeholder with actual username
+func substituteUsername(template, username string) string {
+	return strings.ReplaceAll(template, "{{username}}", username)
 }

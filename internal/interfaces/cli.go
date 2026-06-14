@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
 const (
@@ -27,25 +29,42 @@ const (
 
 // CLIInterface implements the Unix socket interface for local CLI access
 type CLIInterface struct {
-	socketPath string
+	socketPath  string
+	agentFolder string
+	username    string
 }
 
 // CLIRequest represents a request from the CLI client
 type CLIRequest struct {
+	User    string `json:"user"`
 	Session string `json:"session"`
 	Message string `json:"message"`
+	Debug   bool   `json:"debug"`
 }
 
 // CLIResponse represents a response to the CLI client
 type CLIResponse struct {
-	Response string `json:"response"`
-	Error    string `json:"error,omitempty"`
+	Response    string `json:"response"`
+	Error       string `json:"error,omitempty"`
+	SessionFile string `json:"session_file,omitempty"` // Populated when Debug=true
 }
 
 // NewCLI creates a new CLI interface
 func NewCLI(agentFolder string) *CLIInterface {
 	socketPath := filepath.Join(agentFolder, cliDataDir, cliSocketFile)
-	return &CLIInterface{socketPath: socketPath}
+
+	// Get current username
+	currentUser, err := user.Current()
+	username := "unknown"
+	if err == nil {
+		username = currentUser.Username
+	}
+
+	return &CLIInterface{
+		socketPath:  socketPath,
+		agentFolder: agentFolder,
+		username:    username,
+	}
 }
 
 // Start begins listening on the Unix socket
@@ -103,15 +122,26 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 			continue
 		}
 
-		// Default session key to "default"
-		sessionKey := req.Session
-		if sessionKey == "" {
-			sessionKey = defaultSessionKey
+		// Resolve session
+		var resolved session.ResolvedSession
+		var err error
+
+		// If explicit user/session provided, use ResolveExplicit
+		if req.User != "" || req.Session != "" {
+			resolved, err = session.ResolveExplicit(c.agentFolder, req.User, req.Session, interfaceNameCLI)
+		} else {
+			// Otherwise use automatic resolution
+			resolved, err = session.Resolve(c.agentFolder, interfaceNameCLI, c.username, c.username)
+		}
+
+		if err != nil {
+			encoder.Encode(CLIResponse{Error: fmt.Sprintf("session resolution failed: %v", err)})
+			continue
 		}
 
 		// Log message received
 		if runner.Logger != nil {
-			msg := fmt.Sprintf("message received %s:%s", sessionKey, interfaceNameCLI)
+			msg := fmt.Sprintf("message received %s:%s", resolved.UserID, interfaceNameCLI)
 			if runner.Verbose {
 				runner.Logger.Info(msg, "content", req.Message)
 			} else {
@@ -120,27 +150,36 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 		}
 
 		// Run agent
-		response, err := runner.Run(agent.Input{
-			SessionKey: sessionKey,
-			Content:    req.Message,
+		response, runErr := runner.Run(agent.Input{
+			UserID:    resolved.UserID,
+			SessionID: resolved.SessionID,
+			Interface: interfaceNameCLI,
+			Content:   req.Message,
 		})
 
-		if err != nil {
+		if runErr != nil {
 			if runner.Logger != nil {
-				runner.Logger.Error(fmt.Sprintf("agent error %s:%s", sessionKey, interfaceNameCLI), "error", err)
+				runner.Logger.Error(fmt.Sprintf("agent error %s:%s", resolved.UserID, interfaceNameCLI), "error", runErr)
 			}
-			encoder.Encode(CLIResponse{Error: err.Error()})
+			encoder.Encode(CLIResponse{Error: runErr.Error()})
 		} else {
 			// Log response sent
 			if runner.Logger != nil {
-				msg := fmt.Sprintf("response sent %s:%s", sessionKey, interfaceNameCLI)
+				msg := fmt.Sprintf("response sent %s:%s", resolved.UserID, interfaceNameCLI)
 				if runner.Verbose {
 					runner.Logger.Info(msg, "content", response)
 				} else {
 					runner.Logger.Info(msg)
 				}
 			}
-			encoder.Encode(CLIResponse{Response: response})
+
+			// Build response with optional debug info
+			resp := CLIResponse{Response: response}
+			if req.Debug {
+				sessionFile := filepath.Join(".data", "sessions", resolved.UserID, resolved.SessionID+".jsonl")
+				resp.SessionFile = sessionFile
+			}
+			encoder.Encode(resp)
 		}
 	}
 }

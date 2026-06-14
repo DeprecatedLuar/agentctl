@@ -12,7 +12,7 @@ import (
 
 const (
 	// File names
-	promptFile = "prompt"
+	promptFile = "prompts/default"
 
 	// Section markers
 	inputSectionPrefix  = "[>>"

@@ -13,11 +13,12 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
 const (
 	// File and directory names
-	agentConfigFile = "agent.toml"
+	agentConfigFile = "config/agent.toml"
 	dataDir         = ".data"
 	logsDir         = "logs"
 
@@ -137,6 +138,11 @@ func HandleRun(args []string) error {
 	// Ensure .data directory exists
 	if err := os.MkdirAll(filepath.Join(absPath, dataDir), 0755); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
+	}
+
+	// Migrate session files from unlinked contact folders to named identities
+	if err := session.MigrateOnStartup(absPath); err != nil {
+		return fmt.Errorf("session migration failed: %w", err)
 	}
 
 	// Create audio transcriber if configured

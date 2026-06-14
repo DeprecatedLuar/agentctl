@@ -2,10 +2,13 @@ package templates
 
 import _ "embed"
 
-//go:embed files/agent.toml
+//go:embed files/config/agent.toml
 var AgentToml string
 
-//go:embed files/prompt
+//go:embed files/config/identities.toml
+var IdentitiesToml string
+
+//go:embed files/prompts/default
 var Prompt string
 
 //go:embed files/tool-example.toml

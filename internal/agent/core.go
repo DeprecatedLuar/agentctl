@@ -26,8 +26,10 @@ const (
 
 // Input represents user input to the agent
 type Input struct {
-	SessionKey string
-	Content    string
+	UserID    string
+	SessionID string
+	Interface string
+	Content   string
 }
 
 // Message is an alias for llm.Message (for convenience)

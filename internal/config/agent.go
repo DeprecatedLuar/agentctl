@@ -12,7 +12,7 @@ import (
 
 const (
 	// File names
-	agentConfigFile = "agent.toml"
+	agentConfigFile = "config/agent.toml"
 	envFile         = ".env"
 
 	// Provider names (duplicated from provider package to avoid circular dependency)

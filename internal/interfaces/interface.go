@@ -8,7 +8,7 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
-	"github.com/DeprecatedLuar/agentctl/internal/memory"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
 // Interface defines the contract for agent interfaces (CLI, Telegram, etc.)
@@ -50,15 +50,23 @@ func (r *Runner) Run(input agent.Input) (string, error) {
 		}
 	}
 
-	// Load history from memory
+	// Load history from session
 	var history []agent.Message
 	if agentCfg.Memory.MaxMessages > 0 {
-		messages, err := memory.Load(r.AgentFolder, input.SessionKey, agentCfg.Memory.MaxMessages)
+		messages, err := session.Load(r.AgentFolder, input.UserID, input.SessionID, agentCfg.Memory.MaxMessages)
 		if err != nil {
-			r.Logger.Error("failed to load memory", "error", err)
+			r.Logger.Error("failed to load session history", "error", err)
 			return "", err
 		}
-		history = messages
+
+		// Convert session.Message to agent.Message
+		history = make([]agent.Message, len(messages))
+		for i, msg := range messages {
+			history[i] = agent.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			}
+		}
 	}
 
 	// Call agent
@@ -68,10 +76,10 @@ func (r *Runner) Run(input agent.Input) (string, error) {
 		return "", err
 	}
 
-	// Save to memory
+	// Save to session
 	if agentCfg.Memory.MaxMessages > 0 {
-		_ = memory.Save(r.AgentFolder, input.SessionKey, "user", input.Content)
-		_ = memory.Save(r.AgentFolder, input.SessionKey, "assistant", response)
+		_ = session.Save(r.AgentFolder, input.UserID, input.SessionID, "user", input.Content)
+		_ = session.Save(r.AgentFolder, input.UserID, input.SessionID, "assistant", response)
 	}
 
 	return response, nil

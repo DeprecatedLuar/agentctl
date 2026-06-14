@@ -191,7 +191,7 @@ func writeRegistry(registryPath string, paths []string) error {
 // Otherwise, it's treated as a name and resolved from the registry.
 // Returns error if path doesn't exist or is not a valid agent folder.
 func ResolveAgentPath(nameOrPath string) (string, error) {
-	const agentTomlFile = "agent.toml"
+	const agentTomlFile = "config/agent.toml"
 
 	var absPath string
 	var err error
@@ -224,10 +224,10 @@ func ResolveAgentPath(nameOrPath string) (string, error) {
 }
 
 // FindAgentInPath walks upward from the current directory to find an agent folder.
-// Returns the absolute path to the agent folder containing agent.toml.
+// Returns the absolute path to the agent folder containing config/agent.toml.
 // Returns error if no agent folder is found in the directory tree.
 func FindAgentInPath() (string, error) {
-	const agentTomlFile = "agent.toml"
+	const agentTomlFile = "config/agent.toml"
 
 	cwd, err := os.Getwd()
 	if err != nil {
