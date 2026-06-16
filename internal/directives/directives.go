@@ -2,6 +2,7 @@ package directives
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,15 @@ const (
 	nullByte         = 0
 )
 
+// ValidateSyntax validates directive syntax without executing anything.
+// Only checks for syntax errors (unknown directive types, empty paths, invalid escapes).
+// Does NOT load files or execute scripts - use ProcessDirectives for that.
+//
+// Returns error only for syntax issues, not runtime issues.
+func ValidateSyntax(content string) error {
+	return validateSyntaxWithDepth(content, 0)
+}
+
 // ProcessDirectives processes {{file:path}} and {{exec:path}} directives recursively.
 // Supports backslash escaping: \{{...}} becomes literal {{...}}.
 //
@@ -35,6 +45,87 @@ const (
 // Returns processed content and error if directive processing fails.
 func ProcessDirectives(content, agentPath string) (string, error) {
 	return processDirectivesWithDepth(content, agentPath, 0)
+}
+
+// validateSyntaxWithDepth validates directive syntax with depth limit
+func validateSyntaxWithDepth(content string, depth int) error {
+	if depth > maxDepth {
+		return fmt.Errorf("directive nesting too deep (max %d levels)", maxDepth)
+	}
+
+	pos := 0
+	hasDirectives := false
+
+	// Scan all {{...}} patterns
+	for {
+		// Find next {{
+		start := strings.Index(content[pos:], prefix)
+		if start == -1 {
+			break
+		}
+		start += pos
+
+		// Check for escape sequence \{{
+		if start > 0 && content[start-1] == byte(escapeChar) {
+			pos = start + len(prefix)
+			continue
+		}
+
+		// Find closing }}
+		endOffset := strings.Index(content[start+len(prefix):], suffix)
+		if endOffset == -1 {
+			break
+		}
+		end := start + len(prefix) + endOffset
+
+		// Extract inner content
+		inner := content[start+len(prefix) : end]
+
+		// Check if this is a directive (contains :)
+		colonIdx := strings.IndexByte(inner, byte(directiveSep))
+		if colonIdx == -1 {
+			// Variable placeholder, skip
+			pos = end + len(suffix)
+			continue
+		}
+
+		// This is a directive - validate it
+		hasDirectives = true
+		directiveType := inner[:colonIdx]
+		directivePath := inner[colonIdx+1:]
+
+		// Validate path syntax
+		if len(directivePath) == 0 {
+			return fmt.Errorf("{{%s:}}: empty path not allowed", directiveType)
+		}
+		if directivePath[0] == ' ' {
+			return fmt.Errorf("{{%s:%s}}: invalid syntax, space after colon not allowed (use {{%s:%s}})",
+				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+		}
+		if directivePath[len(directivePath)-1] == ' ' {
+			return fmt.Errorf("{{%s:%s}}: invalid syntax, space before closing braces not allowed (use {{%s:%s}})",
+				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+		}
+
+		// Validate directive type (syntax check only, don't execute)
+		switch directiveType {
+		case "file", "exec":
+			// Valid directive types
+		default:
+			return fmt.Errorf("{{%s:%s}}: unknown directive type '%s' (valid: file, exec)", directiveType, directivePath, directiveType)
+		}
+
+		pos = end + len(suffix)
+	}
+
+	// If we found directives, we would need to validate nested content too
+	// But since we're not actually processing, we can't get the nested content
+	// Nested validation happens during ProcessDirectives
+	// This is a trade-off: syntax-only validation can't catch nested syntax errors
+	// until runtime, but that's acceptable since the first level is validated
+	_ = hasDirectives
+
+	return nil
 }
 
 // processDirectivesWithDepth handles directives with recursion depth limit
@@ -157,6 +248,7 @@ func loadFile(path, agentPath string) (string, error) {
 	if strings.HasPrefix(path, homeDirPrefix) {
 		home, err := os.UserHomeDir()
 		if err != nil {
+			slog.Error("directive {{file:}} failed to get home directory", "path", path, "error", err)
 			return "", fmt.Errorf("failed to get home directory: %w", err)
 		}
 		fullPath = filepath.Join(home, path[len(homeDirPrefix):])
@@ -169,20 +261,24 @@ func loadFile(path, agentPath string) (string, error) {
 	// Check if file exists and is not a directory
 	info, err := os.Stat(fullPath)
 	if err != nil {
+		slog.Error("directive {{file:}} failed to load file", "path", path, "full_path", fullPath, "error", err)
 		return "", fmt.Errorf("failed to load file %s: %w", path, err)
 	}
 	if info.IsDir() {
+		slog.Error("directive {{file:}} cannot load directory", "path", path, "full_path", fullPath)
 		return "", fmt.Errorf("cannot load directory as file: %s", path)
 	}
 
 	// Read file
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
+		slog.Error("directive {{file:}} failed to read file", "path", path, "full_path", fullPath, "error", err)
 		return "", fmt.Errorf("failed to read file %s: %w", path, err)
 	}
 
 	// Check for binary content (simple heuristic: null bytes)
 	if hasBinaryContent(content) {
+		slog.Error("directive {{file:}} cannot load binary file", "path", path, "full_path", fullPath)
 		return "", fmt.Errorf("cannot load binary file: %s", path)
 	}
 
@@ -195,6 +291,12 @@ func execScript(path, agentPath string) (string, error) {
 	stdout, stderr, exitCode, execErr := shell.Execute(path, agentPath)
 
 	if execErr != nil {
+		// Log the failure for debugging (error text is injected into content)
+		slog.Error("directive {{exec:}} command failed",
+			"command", path,
+			"exit_code", exitCode,
+			"stderr", stderr,
+			"error", execErr)
 		// Format error same as tool errors: "exit N: stderr"
 		return fmt.Sprintf("exit %d: %s", exitCode, stderr), nil
 	}

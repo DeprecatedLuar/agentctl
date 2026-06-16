@@ -9,8 +9,16 @@ import (
 )
 
 const (
+	// Registry paths
 	registryDir  = ".local/share/agentctl"
 	registryFile = "agents"
+
+	// File permissions
+	registryDirPermissions  = 0755
+	registryFilePermissions = 0644
+
+	// Validation
+	agentConfigPath = "config/agent.toml"
 )
 
 // getRegistryPath returns the absolute path to the registry file
@@ -31,7 +39,7 @@ func Register(path string) error {
 
 	// Create directory if needed
 	dir := filepath.Dir(registryPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, registryDirPermissions); err != nil {
 		return fmt.Errorf("failed to create registry directory: %w", err)
 	}
 
@@ -57,7 +65,7 @@ func Register(path string) error {
 	}
 
 	// Append path
-	file, err := os.OpenFile(registryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(registryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, registryFilePermissions)
 	if err != nil {
 		return fmt.Errorf("failed to open registry: %w", err)
 	}
@@ -171,7 +179,7 @@ func List() ([]string, error) {
 
 // writeRegistry overwrites the registry file with the given paths
 func writeRegistry(registryPath string, paths []string) error {
-	file, err := os.OpenFile(registryPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(registryPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, registryFilePermissions)
 	if err != nil {
 		return err
 	}
@@ -191,8 +199,6 @@ func writeRegistry(registryPath string, paths []string) error {
 // Otherwise, it's treated as a name and resolved from the registry.
 // Returns error if path doesn't exist or is not a valid agent folder.
 func ResolveAgentPath(nameOrPath string) (string, error) {
-	const agentTomlFile = "config/agent.toml"
-
 	var absPath string
 	var err error
 
@@ -215,9 +221,9 @@ func ResolveAgentPath(nameOrPath string) (string, error) {
 	}
 
 	// Validate agent folder
-	agentTomlPath := filepath.Join(absPath, agentTomlFile)
+	agentTomlPath := filepath.Join(absPath, agentConfigPath)
 	if _, err := os.Stat(agentTomlPath); err != nil {
-		return "", fmt.Errorf("not an agent folder (%s not found)", agentTomlFile)
+		return "", fmt.Errorf("not an agent folder (%s not found)", agentConfigPath)
 	}
 
 	return absPath, nil
@@ -227,8 +233,6 @@ func ResolveAgentPath(nameOrPath string) (string, error) {
 // Returns the absolute path to the agent folder containing config/agent.toml.
 // Returns error if no agent folder is found in the directory tree.
 func FindAgentInPath() (string, error) {
-	const agentTomlFile = "config/agent.toml"
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
@@ -237,7 +241,7 @@ func FindAgentInPath() (string, error) {
 	dir := cwd
 	for {
 		// Check if agent.toml exists in current directory
-		agentTomlPath := filepath.Join(dir, agentTomlFile)
+		agentTomlPath := filepath.Join(dir, agentConfigPath)
 		if _, err := os.Stat(agentTomlPath); err == nil {
 			return dir, nil
 		}
@@ -246,7 +250,7 @@ func FindAgentInPath() (string, error) {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			// Reached root without finding agent.toml
-			return "", fmt.Errorf("not in an agent folder (no %s found in directory tree)", agentTomlFile)
+			return "", fmt.Errorf("not in an agent folder (no %s found in directory tree)", agentConfigPath)
 		}
 		dir = parent
 	}

@@ -13,23 +13,23 @@ import (
 // 4. Calls GetLast to find existing session or generates new SessionID
 // 5. Calls SetLast to persist
 // Returns ResolvedSession{UserID, SessionID}
-func Resolve(agentFolder, iface, platformID, displayName string) (ResolvedSession, error) {
+func Resolve(store SessionStore, agentFolder, iface, platformID, displayName string) (ResolvedSession, error) {
 	// Step 0: Lazy migration (best-effort, instant if no migration needed)
 	_ = MigrateContact(agentFolder, iface, platformID) // Ignore errors - migration is best-effort
 
 	// Step 1: Resolve user ID
-	userID, err := ResolveUser(agentFolder, iface, platformID)
+	userID, err := store.ResolveUser(iface, platformID)
 	if err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to resolve user: %w", err)
 	}
 
 	// Step 2: Log contact
-	if err := EnsureContact(agentFolder, iface, platformID, displayName); err != nil {
+	if err := store.EnsureContact(iface, platformID, displayName); err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to log contact: %w", err)
 	}
 
 	// Step 3: Get or create session ID
-	sessionID, err := GetLast(agentFolder, userID, iface)
+	sessionID, err := store.GetLast(userID, iface)
 	if err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to get last session: %w", err)
 	}
@@ -40,7 +40,7 @@ func Resolve(agentFolder, iface, platformID, displayName string) (ResolvedSessio
 	}
 
 	// Step 4: Persist as last session
-	if err := SetLast(agentFolder, userID, iface, sessionID); err != nil {
+	if err := store.SetLast(userID, iface, sessionID); err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to set last session: %w", err)
 	}
 
@@ -53,7 +53,7 @@ func Resolve(agentFolder, iface, platformID, displayName string) (ResolvedSessio
 // ResolveExplicit is used by chat command when --user/--session flags are set.
 // If sessionID is empty, uses last session for that user+interface.
 // If userID is empty, scans all user folders to find which owns the sessionID.
-func ResolveExplicit(agentFolder, userID, sessionID, iface string) (ResolvedSession, error) {
+func ResolveExplicit(store SessionStore, agentFolder, userID, sessionID, iface string) (ResolvedSession, error) {
 	// Case 1: Both specified
 	if userID != "" && sessionID != "" {
 		return ResolvedSession{
@@ -64,7 +64,7 @@ func ResolveExplicit(agentFolder, userID, sessionID, iface string) (ResolvedSess
 
 	// Case 2: User specified, session empty - get last session
 	if userID != "" && sessionID == "" {
-		lastSessionID, err := GetLast(agentFolder, userID, iface)
+		lastSessionID, err := store.GetLast(userID, iface)
 		if err != nil {
 			return ResolvedSession{}, fmt.Errorf("failed to get last session: %w", err)
 		}
@@ -72,7 +72,7 @@ func ResolveExplicit(agentFolder, userID, sessionID, iface string) (ResolvedSess
 		if lastSessionID == "" {
 			// No existing session - generate new one
 			lastSessionID = NewSessionID()
-			if err := SetLast(agentFolder, userID, iface, lastSessionID); err != nil {
+			if err := store.SetLast(userID, iface, lastSessionID); err != nil {
 				return ResolvedSession{}, fmt.Errorf("failed to set last session: %w", err)
 			}
 		}

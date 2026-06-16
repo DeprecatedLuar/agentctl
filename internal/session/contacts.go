@@ -9,7 +9,13 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const contactsFile = "contacts.toml"
+const (
+	// File names
+	contactsFile = "contacts.toml"
+
+	// File permissions
+	contactsFilePermissions = 0644
+)
 
 // Contact represents a contact entry in contacts.toml
 type Contact struct {
@@ -80,7 +86,7 @@ func loadContacts(path string) ([]Contact, error) {
 func saveContacts(path string, contacts []Contact) error {
 	cfg := contactsConfig{Contacts: contacts}
 
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, contactsFilePermissions)
 	if err != nil {
 		return fmt.Errorf("failed to open contacts.toml: %w", err)
 	}

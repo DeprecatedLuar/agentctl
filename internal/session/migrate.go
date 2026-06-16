@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+const (
+	// File and directory permissions
+	dirPermissions  = 0755
+	filePermissions = 0644
+
+	// Session ID parsing
+	sessionIDMinLength = 15 // Minimum length for YYYYMMDD_HHMMSS
+)
+
 // MigrateOnStartup reads identities.toml and for each identity,
 // checks if any of its contacts still have their own unlinked folder.
 // If found, renames all session files into the named identity folder.
@@ -62,7 +71,7 @@ func MigrateOnStartup(agentFolder string) error {
 // Merges .last_session files by keeping most recent session per interface.
 func migrateFolder(srcDir, dstDir string) error {
 	// Ensure destination directory exists
-	if err := os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, dirPermissions); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
@@ -160,7 +169,7 @@ func parseLastSession(path string) (map[string]string, error) {
 
 // writeLastSession writes interface->sessionID map to .last_session file
 func writeLastSession(path string, entries map[string]string) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermissions)
 	if err != nil {
 		return err
 	}
@@ -193,12 +202,12 @@ func isMoreRecent(sessionID1, sessionID2 string) bool {
 func parseSessionTimestamp(sessionID string) (time.Time, error) {
 	// Format: YYYYMMDD_HHMMSS_<6-hex>
 	// Extract first 15 chars: YYYYMMDD_HHMMSS
-	if len(sessionID) < 15 {
+	if len(sessionID) < sessionIDMinLength {
 		return time.Time{}, fmt.Errorf("invalid session ID format")
 	}
 
-	timestampStr := sessionID[:15]
-	return time.Parse("20060102_150405", timestampStr)
+	timestampStr := sessionID[:sessionIDMinLength]
+	return time.Parse(sessionIDTimeFormat, timestampStr)
 }
 
 // MigrateContact migrates a single contact's session folder if it exists as unlinked.

@@ -169,10 +169,24 @@ func saveMessage(result *ParsedPrompt, role, content string, isInput bool, agent
 func processContent(content, agentPath string, vars map[string]string, substituteVars bool) (string, []ValidationIssue, error) {
 	var issues []ValidationIssue
 
-	// First pass: handle {{...}} directives
+	// Validate directive syntax (no execution, just syntax check)
+	if err := directives.ValidateSyntax(content); err != nil {
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("prompt: %v", err),
+		})
+		return "", issues, nil
+	}
+
+	// First pass: handle {{...}} directives (actual processing happens at runtime)
 	processedContent, err := directives.ProcessDirectives(content, agentPath)
 	if err != nil {
-		return "", issues, err
+		// Runtime errors during processing (file not found, etc.)
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("prompt: %v", err),
+		})
+		return "", issues, nil
 	}
 
 	// Second pass: apply variable substitution if requested

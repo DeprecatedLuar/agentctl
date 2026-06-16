@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/DeprecatedLuar/agentctl/internal/directives"
 )
 
 const (
@@ -202,6 +203,16 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 		}
 		if ret, ok := paramMap["return"].(string); ok {
 			param.Return = ret
+
+			// Validate directive syntax in return field (syntax only, no execution)
+			if ret != "" {
+				if err := directives.ValidateSyntax(ret); err != nil {
+					issues = append(issues, ValidationIssue{
+						Type:    IssueError,
+						Message: fmt.Sprintf("tools/%s: parameter '%s' return field: %v", relPath, key, err),
+					})
+				}
+			}
 		}
 
 		tool.Parameters[key] = param

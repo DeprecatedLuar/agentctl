@@ -9,7 +9,15 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const identitiesFile = "config/identities.toml"
+const (
+	// File names
+	identitiesFile = "config/identities.toml"
+
+	// Contact key format
+	contactKeySeparator      = ":"  // Separator for interface:platformID
+	unlinkedFolderSeparator  = "-"  // Separator for filesystem folder names
+	contactKeyExpectedParts  = 2    // Expected parts when splitting contact key
+)
 
 // Identity represents a user with multiple contact points
 type Identity struct {
@@ -59,13 +67,13 @@ func ResolveUser(agentFolder, iface, platformID string) (string, error) {
 
 // ContactKey returns canonical "interface:platformID" string
 func ContactKey(iface, platformID string) string {
-	return fmt.Sprintf("%s:%s", iface, platformID)
+	return fmt.Sprintf("%s%s%s", iface, contactKeySeparator, platformID)
 }
 
 // UnlinkedFolderName returns filesystem-safe folder name for unlinked contact
 // e.g. "telegram:12345678" -> "telegram-12345678"
 func UnlinkedFolderName(iface, platformID string) string {
-	return fmt.Sprintf("%s-%s", iface, platformID)
+	return fmt.Sprintf("%s%s%s", iface, unlinkedFolderSeparator, platformID)
 }
 
 // LoadIdentities loads all identities from identities.toml
@@ -91,9 +99,9 @@ func LoadIdentities(agentFolder string) ([]Identity, error) {
 
 // ParseContactKey splits a contact key "interface:platformID" into components
 func ParseContactKey(contactKey string) (iface, platformID string, err error) {
-	parts := strings.SplitN(contactKey, ":", 2)
-	if len(parts) != 2 {
-		return "", "", fmt.Errorf("invalid contact key format (expected 'interface:platformID'): %s", contactKey)
+	parts := strings.SplitN(contactKey, contactKeySeparator, contactKeyExpectedParts)
+	if len(parts) != contactKeyExpectedParts {
+		return "", "", fmt.Errorf("invalid contact key format (expected 'interface%splatformID'): %s", contactKeySeparator, contactKey)
 	}
 	return parts[0], parts[1], nil
 }

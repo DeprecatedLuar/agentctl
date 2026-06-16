@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/user"
 	"path/filepath"
 
-	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
@@ -32,6 +32,10 @@ type CLIInterface struct {
 	socketPath  string
 	agentFolder string
 	username    string
+	handler     MessageHandler
+	store       session.SessionStore
+	logger      *slog.Logger
+	verbose     bool
 }
 
 // CLIRequest represents a request from the CLI client
@@ -50,7 +54,7 @@ type CLIResponse struct {
 }
 
 // NewCLI creates a new CLI interface
-func NewCLI(agentFolder string) *CLIInterface {
+func NewCLI(agentFolder string, handler MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) *CLIInterface {
 	socketPath := filepath.Join(agentFolder, cliDataDir, cliSocketFile)
 
 	// Get current username
@@ -64,11 +68,15 @@ func NewCLI(agentFolder string) *CLIInterface {
 		socketPath:  socketPath,
 		agentFolder: agentFolder,
 		username:    username,
+		handler:     handler,
+		store:       store,
+		logger:      logger,
+		verbose:     verbose,
 	}
 }
 
 // Start begins listening on the Unix socket
-func (c *CLIInterface) Start(ctx context.Context, runner *Runner) error {
+func (c *CLIInterface) Start(ctx context.Context) error {
 	// Ensure .data directory exists
 	dataDir := filepath.Dir(c.socketPath)
 	if err := os.MkdirAll(dataDir, dirPermissions); err != nil {
@@ -105,11 +113,11 @@ func (c *CLIInterface) Start(ctx context.Context, runner *Runner) error {
 			}
 		}
 
-		go c.handleConnection(conn, runner)
+		go c.handleConnection(conn)
 	}
 }
 
-func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
+func (c *CLIInterface) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
@@ -128,10 +136,10 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 
 		// If explicit user/session provided, use ResolveExplicit
 		if req.User != "" || req.Session != "" {
-			resolved, err = session.ResolveExplicit(c.agentFolder, req.User, req.Session, interfaceNameCLI)
+			resolved, err = session.ResolveExplicit(c.store, c.agentFolder, req.User, req.Session, interfaceNameCLI)
 		} else {
 			// Otherwise use automatic resolution
-			resolved, err = session.Resolve(c.agentFolder, interfaceNameCLI, c.username, c.username)
+			resolved, err = session.Resolve(c.store, c.agentFolder, interfaceNameCLI, c.username, c.username)
 		}
 
 		if err != nil {
@@ -140,17 +148,17 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 		}
 
 		// Log message received
-		if runner.Logger != nil {
+		if c.logger != nil {
 			msg := fmt.Sprintf("message received %s:%s", resolved.UserID, interfaceNameCLI)
-			if runner.Verbose {
-				runner.Logger.Info(msg, "content", req.Message)
+			if c.verbose {
+				c.logger.Info(msg, "content", req.Message)
 			} else {
-				runner.Logger.Info(msg)
+				c.logger.Info(msg)
 			}
 		}
 
-		// Run agent
-		response, runErr := runner.Run(agent.Input{
+		// Handle message via abstraction
+		response, runErr := c.handler.HandleMessage(MessageOptions{
 			UserID:    resolved.UserID,
 			SessionID: resolved.SessionID,
 			Interface: interfaceNameCLI,
@@ -158,18 +166,18 @@ func (c *CLIInterface) handleConnection(conn net.Conn, runner *Runner) {
 		})
 
 		if runErr != nil {
-			if runner.Logger != nil {
-				runner.Logger.Error(fmt.Sprintf("agent error %s:%s", resolved.UserID, interfaceNameCLI), "error", runErr)
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("agent error %s:%s", resolved.UserID, interfaceNameCLI), "error", runErr)
 			}
 			encoder.Encode(CLIResponse{Error: runErr.Error()})
 		} else {
 			// Log response sent
-			if runner.Logger != nil {
+			if c.logger != nil {
 				msg := fmt.Sprintf("response sent %s:%s", resolved.UserID, interfaceNameCLI)
-				if runner.Verbose {
-					runner.Logger.Info(msg, "content", response)
+				if c.verbose {
+					c.logger.Info(msg, "content", response)
 				} else {
-					runner.Logger.Info(msg)
+					c.logger.Info(msg)
 				}
 			}
 

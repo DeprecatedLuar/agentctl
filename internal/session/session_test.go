@@ -153,6 +153,7 @@ func TestEnsureContact(t *testing.T) {
 
 func TestLoadSave_RoundTrip(t *testing.T) {
 	tmpDir := t.TempDir()
+	store := NewJSONLStore(tmpDir)
 
 	userID := "alice"
 	sessionID := NewSessionID()
@@ -168,13 +169,13 @@ func TestLoadSave_RoundTrip(t *testing.T) {
 	}
 
 	for _, msg := range messages {
-		if err := Save(tmpDir, userID, sessionID, msg.role, msg.content); err != nil {
+		if err := store.Save(userID, sessionID, msg.role, msg.content); err != nil {
 			t.Fatalf("Save() error = %v", err)
 		}
 	}
 
 	// Load with no limit
-	loaded, err := Load(tmpDir, userID, sessionID, 0)
+	loaded, err := store.Load(userID, sessionID, 0)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -184,7 +185,7 @@ func TestLoadSave_RoundTrip(t *testing.T) {
 	}
 
 	// Load all messages
-	loaded, err = Load(tmpDir, userID, sessionID, 10)
+	loaded, err = store.Load(userID, sessionID, 10)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -204,7 +205,7 @@ func TestLoadSave_RoundTrip(t *testing.T) {
 	}
 
 	// Load with limit
-	loaded, err = Load(tmpDir, userID, sessionID, 2)
+	loaded, err = store.Load(userID, sessionID, 2)
 	if err != nil {
 		t.Fatalf("Load(limit=2) error = %v", err)
 	}
@@ -221,12 +222,13 @@ func TestLoadSave_RoundTrip(t *testing.T) {
 
 func TestLoadSave_NewPath(t *testing.T) {
 	tmpDir := t.TempDir()
+	store := NewJSONLStore(tmpDir)
 
 	// Verify path structure: .data/sessions/{userID}/{sessionID}.jsonl
 	userID := "alice"
 	sessionID := "20260614_120000_abc123"
 
-	if err := Save(tmpDir, userID, sessionID, "user", "test"); err != nil {
+	if err := store.Save(userID, sessionID, "user", "test"); err != nil {
 		t.Fatal(err)
 	}
 

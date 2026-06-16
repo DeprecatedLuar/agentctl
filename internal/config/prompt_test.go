@@ -31,7 +31,8 @@ Var: {{myvar}}
 [>>user]
 {{input}}`
 	
-	if err := os.WriteFile(filepath.Join(tmpDir, "prompt"), []byte(promptContent), 0644); err != nil {
+	os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	
@@ -86,7 +87,8 @@ func TestDirectiveErrors(t *testing.T) {
 	t.Run("unknown directive", func(t *testing.T) {
 		promptContent := `[>system]
 {{unknown:./file}}`
-		os.WriteFile(filepath.Join(tmpDir, "prompt"), []byte(promptContent), 0644)
+		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644)
 
 		_, issues := Parse(tmpDir, nil)
 
@@ -109,7 +111,8 @@ func TestDirectiveErrors(t *testing.T) {
 
 		promptContent := `[>system]
 Result: {{exec:./fail.sh}}`
-		os.WriteFile(filepath.Join(tmpDir, "prompt"), []byte(promptContent), 0644)
+		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644)
 
 		prompt, _ := Parse(tmpDir, nil)
 
