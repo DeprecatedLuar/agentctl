@@ -28,12 +28,14 @@ const (
 )
 
 // CLIInterface implements the Unix socket interface for local CLI access
+// Note: Unlike other interfaces, CLI retains minimal session access for explicit
+// resolution (--user/--session flags). This is the only exception to pure I/O adapter rule.
 type CLIInterface struct {
 	socketPath  string
 	agentFolder string
 	username    string
 	handler     MessageHandler
-	store       session.SessionStore
+	store       session.SessionStore // Only for explicit resolution edge case
 	logger      *slog.Logger
 	verbose     bool
 }
@@ -130,26 +132,21 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		// Resolve session
-		var resolved session.ResolvedSession
-		var err error
-
-		// If explicit user/session provided, use ResolveExplicit
+		// Handle explicit resolution (--user/--session flags)
+		// This is the ONLY exception to pure I/O adapter rule - CLI has a unique
+		// explicit resolution feature that bypasses normal contact resolution
 		if req.User != "" || req.Session != "" {
-			resolved, err = session.ResolveExplicit(c.store, c.agentFolder, req.User, req.Session, interfaceNameCLI)
-		} else {
-			// Otherwise use automatic resolution
-			resolved, err = session.Resolve(c.store, c.agentFolder, interfaceNameCLI, c.username, c.username)
-		}
-
-		if err != nil {
-			encoder.Encode(CLIResponse{Error: fmt.Sprintf("session resolution failed: %v", err)})
+			c.handleExplicitResolution(encoder, req)
 			continue
 		}
 
+		// Normal flow: Use username as contact ID
+		contactID := c.username
+		displayName := c.username
+
 		// Log message received
 		if c.logger != nil {
-			msg := fmt.Sprintf("message received %s:%s", resolved.UserID, interfaceNameCLI)
+			msg := fmt.Sprintf("message received %s:%s", contactID, interfaceNameCLI)
 			if c.verbose {
 				c.logger.Info(msg, "content", req.Message)
 			} else {
@@ -157,23 +154,18 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 			}
 		}
 
-		// Handle message via abstraction
-		response, runErr := c.handler.HandleMessage(MessageOptions{
-			UserID:    resolved.UserID,
-			SessionID: resolved.SessionID,
-			Interface: interfaceNameCLI,
-			Content:   req.Message,
-		})
+		// Handle message via service layer (pure I/O adapter)
+		response, runErr := c.handler.HandleMessage(interfaceNameCLI, contactID, displayName, req.Message)
 
 		if runErr != nil {
 			if c.logger != nil {
-				c.logger.Error(fmt.Sprintf("agent error %s:%s", resolved.UserID, interfaceNameCLI), "error", runErr)
+				c.logger.Error("agent error", "contact", contactID, "interface", interfaceNameCLI, "error", runErr)
 			}
 			encoder.Encode(CLIResponse{Error: runErr.Error()})
 		} else {
 			// Log response sent
 			if c.logger != nil {
-				msg := fmt.Sprintf("response sent %s:%s", resolved.UserID, interfaceNameCLI)
+				msg := fmt.Sprintf("response sent %s:%s", contactID, interfaceNameCLI)
 				if c.verbose {
 					c.logger.Info(msg, "content", response)
 				} else {
@@ -181,13 +173,58 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 				}
 			}
 
-			// Build response with optional debug info
+			// Build response (no debug info in normal flow since we don't know resolved session)
 			resp := CLIResponse{Response: response}
-			if req.Debug {
-				sessionFile := filepath.Join(".data", "sessions", resolved.UserID, resolved.SessionID+".jsonl")
-				resp.SessionFile = sessionFile
-			}
 			encoder.Encode(resp)
 		}
+	}
+}
+
+// handleExplicitResolution handles the special case of --user/--session flags
+// This bypasses normal contact resolution and directly specifies user/session
+func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRequest) {
+	// Resolve explicit user/session
+	resolved, err := session.ResolveExplicit(c.store, c.agentFolder, req.User, req.Session, interfaceNameCLI)
+	if err != nil {
+		encoder.Encode(CLIResponse{Error: fmt.Sprintf("explicit resolution failed: %v", err)})
+		return
+	}
+
+	// Log message received
+	if c.logger != nil {
+		msg := fmt.Sprintf("message received %s:%s (explicit)", resolved.UserID, interfaceNameCLI)
+		if c.verbose {
+			c.logger.Info(msg, "content", req.Message)
+		} else {
+			c.logger.Info(msg)
+		}
+	}
+
+	// Use explicit message handler (bypasses contact resolution)
+	response, runErr := c.handler.HandleExplicitMessage(resolved.UserID, resolved.SessionID, interfaceNameCLI, req.Message)
+
+	if runErr != nil {
+		if c.logger != nil {
+			c.logger.Error("agent error", "user", resolved.UserID, "interface", interfaceNameCLI, "error", runErr)
+		}
+		encoder.Encode(CLIResponse{Error: runErr.Error()})
+	} else {
+		// Log response sent
+		if c.logger != nil {
+			msg := fmt.Sprintf("response sent %s:%s (explicit)", resolved.UserID, interfaceNameCLI)
+			if c.verbose {
+				c.logger.Info(msg, "content", response)
+			} else {
+				c.logger.Info(msg)
+			}
+		}
+
+		// Build response with debug info
+		resp := CLIResponse{Response: response}
+		if req.Debug {
+			sessionFile := filepath.Join(".data", "sessions", resolved.UserID, resolved.SessionID+".jsonl")
+			resp.SessionFile = sessionFile
+		}
+		encoder.Encode(resp)
 	}
 }

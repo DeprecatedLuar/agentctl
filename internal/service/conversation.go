@@ -7,12 +7,8 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
-
-// MessageOptions is an alias for interfaces.MessageOptions for convenience
-type MessageOptions = interfaces.MessageOptions
 
 // ConversationService orchestrates a single conversation turn
 type ConversationService struct {
@@ -25,12 +21,34 @@ type ConversationService struct {
 
 // HandleMessage implements the MessageHandler interface
 // Executes a conversation turn with full orchestration:
+// - Resolves session from contact ID
 // - Loads config/tools/prompt (hot reload)
 // - Loads session history
 // - Calls agent
 // - Saves messages
 // - Triggers title generation (async, first turn only)
-func (s *ConversationService) HandleMessage(opts MessageOptions) (string, error) {
+func (s *ConversationService) HandleMessage(iface, contactID, displayName, content string) (string, error) {
+	// Resolve session from contact ID
+	resolved, err := session.Resolve(s.SessionStore, s.AgentFolder, iface, contactID, displayName)
+	if err != nil {
+		s.Logger.Error("session resolution failed", "contact", contactID, "error", err)
+		return "", fmt.Errorf("session resolution failed: %w", err)
+	}
+
+	return s.handleMessageInternal(resolved.UserID, resolved.SessionID, iface, content)
+}
+
+// HandleExplicitMessage implements the MessageHandler interface for explicit resolution
+// Used by CLI interface when --user/--session flags are provided
+// Bypasses contact resolution and uses provided IDs directly
+func (s *ConversationService) HandleExplicitMessage(userID, sessionID, iface, content string) (string, error) {
+	return s.handleMessageInternal(userID, sessionID, iface, content)
+}
+
+// handleMessageInternal contains the core message handling logic
+// Called by both HandleMessage (after resolution) and HandleExplicitMessage (direct)
+func (s *ConversationService) handleMessageInternal(userID, sessionID, iface, content string) (string, error) {
+
 	// Load config, tools, and prompt fresh on each request (hot reload)
 	agentCfg, agentIssues := config.LoadAgent(s.AgentFolder)
 	if agentCfg == nil {
@@ -58,7 +76,7 @@ func (s *ConversationService) HandleMessage(opts MessageOptions) (string, error)
 	// Load history from session
 	var history []agent.Message
 	if agentCfg.Memory.MaxMessages > 0 {
-		messages, err := s.SessionStore.Load(opts.UserID, opts.SessionID, agentCfg.Memory.MaxMessages)
+		messages, err := s.SessionStore.Load(userID, sessionID, agentCfg.Memory.MaxMessages)
 		if err != nil {
 			s.Logger.Error("failed to load session history", "error", err)
 			return "", err
@@ -76,10 +94,10 @@ func (s *ConversationService) HandleMessage(opts MessageOptions) (string, error)
 
 	// Build agent input
 	input := agent.Input{
-		UserID:    opts.UserID,
-		SessionID: opts.SessionID,
-		Interface: opts.Interface,
-		Content:   opts.Content,
+		UserID:    userID,
+		SessionID: sessionID,
+		Interface: iface,
+		Content:   content,
 	}
 
 	// Call agent
@@ -92,22 +110,22 @@ func (s *ConversationService) HandleMessage(opts MessageOptions) (string, error)
 	// Save messages to session
 	if agentCfg.Memory.MaxMessages > 0 {
 		// Check if this is a new session BEFORE saving (file existence = first exchange indicator)
-		isNewSession := !s.SessionStore.SessionExists(opts.UserID, opts.SessionID)
+		isNewSession := !s.SessionStore.SessionExists(userID, sessionID)
 		if s.Debug {
-			s.Logger.Debug("session check", "is_new", isNewSession, "session", opts.SessionID)
+			s.Logger.Debug("session check", "is_new", isNewSession, "session", sessionID)
 		}
 
 		// Save user message and assistant response
-		_ = s.SessionStore.Save(opts.UserID, opts.SessionID, "user", opts.Content)
-		_ = s.SessionStore.Save(opts.UserID, opts.SessionID, "assistant", response)
+		_ = s.SessionStore.Save(userID, sessionID, "user", content)
+		_ = s.SessionStore.Save(userID, sessionID, "assistant", response)
 
 		// Auto-generate title after first exchange (async, non-blocking)
 		if isNewSession {
 			if s.Debug {
-				s.Logger.Debug("launching title generation", "session", opts.SessionID)
+				s.Logger.Debug("launching title generation", "session", sessionID)
 			}
 			// Pass messages directly to avoid race condition with file I/O
-			go s.generateTitle(agentCfg, opts.UserID, opts.SessionID, opts.Content, response)
+			go s.generateTitle(agentCfg, userID, sessionID, content, response)
 		}
 	}
 

@@ -13,13 +13,15 @@ type Interface interface {
 // MessageHandler processes incoming messages and returns responses
 // Implemented by the service layer, injected into interfaces
 type MessageHandler interface {
-	HandleMessage(opts MessageOptions) (string, error)
+	// HandleMessage processes a message with automatic contact resolution
+	HandleMessage(iface, contactID, displayName, content string) (string, error)
+
+	// HandleExplicitMessage processes a message with explicit user/session IDs
+	// Used only by CLI interface for --user/--session flags (bypasses contact resolution)
+	HandleExplicitMessage(userID, sessionID, iface, content string) (string, error)
 }
 
-// MessageOptions contains all context needed to process a message
-type MessageOptions struct {
-	UserID    string
-	SessionID string
-	Interface string
-	Content   string
+// Dispatcher abstracts response delivery mechanism (socket, bot API, etc.)
+type Dispatcher interface {
+	Send(response string) error
 }

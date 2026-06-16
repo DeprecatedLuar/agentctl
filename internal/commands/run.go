@@ -203,7 +203,7 @@ func HandleRun(args []string) error {
 				}
 			}()
 		case interfaceTelegram:
-			telegram, err := interfaces.NewTelegram(absPath, transcriber, svc, store, lg, verbose)
+			telegram, err := interfaces.NewTelegram(absPath, transcriber, svc, lg, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telegram interface: %w", err)
 			}

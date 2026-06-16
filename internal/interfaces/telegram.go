@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
-	"github.com/DeprecatedLuar/agentctl/internal/session"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 )
@@ -32,13 +31,12 @@ type TelegramInterface struct {
 	token       string
 	transcriber audio.Transcriber // Optional, for voice message support
 	handler     MessageHandler
-	store       session.SessionStore
 	logger      *slog.Logger
 	verbose     bool
 }
 
 // NewTelegram creates a new Telegram interface
-func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
+func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler MessageHandler, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
 	// Load .env from agent folder
 	envPath := filepath.Join(agentFolder, telegramEnvFile)
 	_ = godotenv.Load(envPath)
@@ -53,7 +51,6 @@ func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler Mess
 		token:       token,
 		transcriber: transcriber,
 		handler:     handler,
-		store:       store,
 		logger:      logger,
 		verbose:     verbose,
 	}, nil
@@ -96,19 +93,9 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	userID := message.From.ID
 	text := message.Text
 
-	// Resolve session
+	// Extract contact information
 	contactID := strconv.FormatInt(userID, 10)
 	displayName := message.From.UserName
-	resolved, err := session.Resolve(t.store, t.agentFolder, interfaceNameTelegram, contactID, displayName)
-	if err != nil {
-		if t.logger != nil {
-			t.logger.Error("session resolution failed", "contact", contactID, "error", err)
-		}
-		errorMsg := fmt.Sprintf("Session error: %v", err)
-		msg := tgbotapi.NewMessage(chatID, errorMsg)
-		bot.Send(msg)
-		return
-	}
 
 	// Handle /start command
 	if text == "/start" {
@@ -116,7 +103,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		msg := tgbotapi.NewMessage(chatID, welcomeMsg)
 		bot.Send(msg)
 		if t.logger != nil {
-			t.logger.Info("start command", "user", resolved.UserID)
+			t.logger.Info("start command", "contact", contactID)
 		}
 		return
 	}
@@ -127,7 +114,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		text, transcribeErr = t.transcribeVoiceMessage(bot, message.Voice)
 		if transcribeErr != nil {
 			if t.logger != nil {
-				t.logger.Error(fmt.Sprintf("transcription error %s:%s", resolved.UserID, interfaceNameTelegram), "error", transcribeErr)
+				t.logger.Error("transcription error", "contact", contactID, "error", transcribeErr)
 			}
 			errorMsg := fmt.Sprintf("Failed to transcribe voice message: %v", transcribeErr)
 			msg := tgbotapi.NewMessage(chatID, errorMsg)
@@ -135,13 +122,13 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 			return
 		}
 		if t.logger != nil {
-			t.logger.Info("voice message transcribed", "user", resolved.UserID, "text", text)
+			t.logger.Info("voice message transcribed", "contact", contactID, "text", text)
 		}
 	}
 
 	// Log message received
 	if t.logger != nil {
-		msg := fmt.Sprintf("message received %s:%s", resolved.UserID, interfaceNameTelegram)
+		msg := fmt.Sprintf("message received %s:%s", contactID, interfaceNameTelegram)
 		if t.verbose {
 			t.logger.Info(msg, "content", text)
 		} else {
@@ -153,13 +140,8 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	typingCtx, cancelTyping := context.WithCancel(ctx)
 	go t.sendTypingLoop(typingCtx, bot, chatID)
 
-	// Handle message via abstraction
-	response, runErr := t.handler.HandleMessage(MessageOptions{
-		UserID:    resolved.UserID,
-		SessionID: resolved.SessionID,
-		Interface: interfaceNameTelegram,
-		Content:   text,
-	})
+	// Handle message via service layer (pure I/O adapter)
+	response, runErr := t.handler.HandleMessage(interfaceNameTelegram, contactID, displayName, text)
 
 	// Stop typing indicator
 	cancelTyping()
@@ -167,7 +149,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	// Send response or error
 	if runErr != nil {
 		if t.logger != nil {
-			t.logger.Error(fmt.Sprintf("agent error %s:%s", resolved.UserID, interfaceNameTelegram), "error", runErr)
+			t.logger.Error("agent error", "contact", contactID, "interface", interfaceNameTelegram, "error", runErr)
 		}
 		errorMsg := fmt.Sprintf("Error: %v", runErr)
 		msg := tgbotapi.NewMessage(chatID, errorMsg)
@@ -177,7 +159,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 
 	// Log response sent
 	if t.logger != nil {
-		msg := fmt.Sprintf("response sent %s:%s", resolved.UserID, interfaceNameTelegram)
+		msg := fmt.Sprintf("response sent %s:%s", contactID, interfaceNameTelegram)
 		if t.verbose {
 			t.logger.Info(msg, "content", response)
 		} else {
