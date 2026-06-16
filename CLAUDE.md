@@ -92,42 +92,49 @@ Both → Runner.Run() → agent.Run() → provider.SendMessages()
    - `telegram.go`: Telegram bot with long polling, typing indicators, uses Telegram user ID
    - **Important:** Runner loads config/tools/prompt fresh on each Run() call for hot-reload
 
-6. **internal/session** - Session management with identity linking and migration
-   - `session.go`: ResolvedSession type, NewSessionID() with `YYYYMMDD_HHMMSS_<6-hex>` format
+6. **internal/session** - Session management with identity linking, migration, and auto-title generation
+   - `session.go`: ResolvedSession type, NewSessionID() with `YYYYMMDD_HHMMSS_<6-hex>` format, SessionMeta with title
    - `identity.go`: identities.toml parsing, ResolveUser() for linking contacts to named identities
    - `contacts.go`: Contact logging with deduplication
    - `last.go`: .last_session tracking (plain text `interface=sessionID` format)
-   - `store.go`: Load/Save functions for JSONL conversation history
+   - `jsonl.go`: JSONL storage implementation with per-session mutex for race protection
    - `resolve.go`: Resolve() for interfaces (auto user resolution), ResolveExplicit() for chat command
    - `migrate.go`: MigrateOnStartup() for bulk migration, MigrateContact() for lazy per-message migration
+   - `title.go`: GenerateTitle() for async LLM-based session title generation
    - Storage: `{agent_folder}/.data/sessions/{userID}/{sessionID}.jsonl`
    - Respects `memory.max_messages` limit from agent.toml
+   - **Thread Safety**: Per-session mutexes prevent race conditions between concurrent Save/Load/SetMeta operations
 
-7. **internal/commands** - CLI command handlers
+7. **internal/service** - Business logic orchestration layer
+   - `conversation.go`: ConversationService handles message processing with hot-reload and async title generation
+   - Detects new sessions and triggers async title generation after first exchange
+   - Loads config/tools/prompt fresh on each request (enables hot-reload)
+
+8. **internal/commands** - CLI command handlers
    - `init.go`: Scaffold agent folder from embedded templates
    - `run.go`: Start daemon, load config/tools/prompt, spawn interfaces, run migration
    - `chat.go`: Send message to Unix socket (defaults to current dir, flags: --agent/-a, --user/-u, --session/-s)
 
-8. **internal/directives** - Directive processor for {{file:}} and {{exec:}} syntax
+9. **internal/directives** - Directive processor for {{file:}} and {{exec:}} syntax
    - `process.go`: ProcessDirectives() with recursive expansion (10-level depth limit)
    - Used by both prompt parser and tool parameter return values
    - Supports relative paths (agent folder), ~/ expansion, absolute paths
 
-9. **internal/debug** - Debug utilities for inspecting AI requests
+10. **internal/debug** - Debug utilities for inspecting AI requests
    - LogRequest/LogResponse/LogToolExecution functions for structured debug logging
    - Writes timestamped JSON files to `.data/debug-calls/` when `debug_calls = true`
    - Auto-cleanup to prevent disk bloat (keeps last 10 files)
 
-10. **internal/registry** - XDG agent registry for name-based resolution
+11. **internal/registry** - XDG agent registry for name-based resolution
    - Registry file: `~/.local/share/agentctl/agents` (one path per line)
    - Register() adds agent to registry, Resolve() looks up by name or path
    - Auto-cleanup of dead entries, handles multiple-match ambiguity
 
-11. **internal/templates** - Embedded template files (files/ directory)
+12. **internal/templates** - Embedded template files (files/ directory)
    - Pure data package, no logic
    - Template structure: `files/config/`, `files/prompts/`, `files/tools/`
 
-12. **cmd/agentctl** - Main entry point with gohelp-luar documentation
+13. **cmd/agentctl** - Main entry point with gohelp-luar documentation
    - `main.go`: Command routing, help system with topic pages (setup, config, tools, prompt, interfaces, memory)
 
 ### Agent Folder Structure
@@ -293,6 +300,19 @@ Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
 - Contact logging in `.data/contacts` file (append-only with deduplication)
 - `memory.max_messages` in agent.toml controls history limit (0 = unlimited)
 
+**Auto-Title Generation:**
+- Automatically generates short session titles (max 5 words) after first user-assistant exchange
+- Runs asynchronously in background goroutine (doesn't block user response)
+- Uses same LLM provider/model as agent with fixed prompt
+- Title stored in session metadata (first line of JSONL file with `type="meta"`)
+- No-op if title already exists (prevents re-generation)
+
+**Thread Safety (Critical):**
+- All session file operations (Load/Save/GetMeta/SetMeta) are protected by per-session mutexes
+- Prevents race condition where concurrent Save() during async SetMeta() could lose messages
+- Each session gets its own mutex via `sync.Map` (zero contention between different sessions)
+- Title generation passes messages in-memory (not re-reading from disk) to avoid file I/O race
+
 ### Help System
 
 Uses `github.com/DeprecatedLuar/gohelp-luar` for formatted CLI help:
@@ -342,6 +362,8 @@ Two complementary debugging mechanisms:
 - **Identity-based sessions** - Support multiple contacts per user (CLI + Telegram unified)
 - **Dual migration strategy** - Startup bulk migration + lazy per-message migration (no restart needed)
 - **XDG agent registry** - Name-based agent resolution via `~/.local/share/agentctl/agents`
+- **Async title generation** - LLM-generated titles don't block user responses, run in background
+- **Per-session mutexes** - Prevents race conditions in concurrent file operations without global locking
 
 ### Adding New Providers
 
