@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -30,13 +31,13 @@ type TelegramInterface struct {
 	agentFolder string
 	token       string
 	transcriber audio.Transcriber // Optional, for voice message support
-	handler     MessageHandler
+	handler     internal.MessageHandler
 	logger      *slog.Logger
 	verbose     bool
 }
 
 // NewTelegram creates a new Telegram interface
-func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler MessageHandler, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
+func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler internal.MessageHandler, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
 	// Load .env from agent folder
 	envPath := filepath.Join(agentFolder, telegramEnvFile)
 	_ = godotenv.Load(envPath)

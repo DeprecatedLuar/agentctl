@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
@@ -34,7 +35,7 @@ type CLIInterface struct {
 	socketPath  string
 	agentFolder string
 	username    string
-	handler     MessageHandler
+	handler     internal.MessageHandler
 	store       session.SessionStore // Only for explicit resolution edge case
 	logger      *slog.Logger
 	verbose     bool
@@ -56,7 +57,7 @@ type CLIResponse struct {
 }
 
 // NewCLI creates a new CLI interface
-func NewCLI(agentFolder string, handler MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) *CLIInterface {
+func NewCLI(agentFolder string, handler internal.MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) *CLIInterface {
 	socketPath := filepath.Join(agentFolder, cliDataDir, cliSocketFile)
 
 	// Get current username

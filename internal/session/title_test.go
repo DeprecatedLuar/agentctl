@@ -7,9 +7,47 @@ import (
 	"testing"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/registry"
+	"github.com/joho/godotenv"
 )
 
+// ensureTestCredentials tries to load API credentials for testing
+// 1. Checks if OPENROUTER_API_KEY already in env
+// 2. Falls back to loading from a registered agent's .env
+// Returns true if credentials available, false otherwise
+func ensureTestCredentials(t *testing.T) bool {
+	// Check if already set
+	if os.Getenv("OPENROUTER_API_KEY") != "" {
+		return true
+	}
+
+	// Try to find a registered agent
+	agents, err := registry.List()
+	if err != nil || len(agents) == 0 {
+		return false
+	}
+
+	// Try to load .env from first agent
+	envPath := filepath.Join(agents[0], ".env")
+	if err := godotenv.Load(envPath); err != nil {
+		return false
+	}
+
+	// Check if key was loaded
+	if os.Getenv("OPENROUTER_API_KEY") != "" {
+		t.Logf("Using credentials from agent: %s", agents[0])
+		return true
+	}
+
+	return false
+}
+
 func TestGenerateTitle(t *testing.T) {
+	// Ensure we have API credentials (env var or registry lookup)
+	if !ensureTestCredentials(t) {
+		t.Skip("skipping test - no OPENROUTER_API_KEY in env and no registered agents with credentials")
+	}
+
 	// Create temporary test agent folder
 	tmpDir := t.TempDir()
 
@@ -50,7 +88,7 @@ max_messages = 10
 	// Load agent config
 	cfg, _ := config.LoadAgent(tmpDir)
 	if cfg == nil {
-		t.Skip("skipping test - agent config failed to load (may need .env)")
+		t.Fatal("agent config failed to load")
 	}
 
 	// Create logger

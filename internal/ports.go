@@ -1,17 +1,11 @@
-package interfaces
+package internal
 
 import (
 	"context"
 )
 
-// Interface defines the contract for agent interfaces (CLI, Telegram, etc.)
-// Interfaces handle I/O only - receiving input and delivering output
-type Interface interface {
-	Start(ctx context.Context) error
-}
-
 // MessageHandler processes incoming messages and returns responses
-// Implemented by the service layer, injected into interfaces
+// Implemented by the orchestration layer, injected into interfaces
 type MessageHandler interface {
 	// HandleMessage processes a message with automatic contact resolution
 	HandleMessage(iface, contactID, displayName, content string) (string, error)
@@ -24,4 +18,10 @@ type MessageHandler interface {
 // Dispatcher abstracts response delivery mechanism (socket, bot API, etc.)
 type Dispatcher interface {
 	Send(response string) error
+}
+
+// Interface defines the contract for agent interfaces (CLI, Telegram, etc.)
+// Interfaces handle I/O only - receiving input and delivering output
+type Interface interface {
+	Start(ctx context.Context) error
 }

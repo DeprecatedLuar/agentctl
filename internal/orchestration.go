@@ -1,4 +1,4 @@
-package service
+package internal
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
-// ConversationService orchestrates a single conversation turn
-type ConversationService struct {
+// Orchestrator orchestrates a single conversation turn
+type Orchestrator struct {
 	AgentFolder  string
 	SessionStore session.SessionStore
 	Logger       *slog.Logger
@@ -27,38 +27,38 @@ type ConversationService struct {
 // - Calls agent
 // - Saves messages
 // - Triggers title generation (async, first turn only)
-func (s *ConversationService) HandleMessage(iface, contactID, displayName, content string) (string, error) {
+func (o *Orchestrator) HandleMessage(iface, contactID, displayName, content string) (string, error) {
 	// Resolve session from contact ID
-	resolved, err := session.Resolve(s.SessionStore, s.AgentFolder, iface, contactID, displayName)
+	resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, iface, contactID, displayName)
 	if err != nil {
-		s.Logger.Error("session resolution failed", "contact", contactID, "error", err)
+		o.Logger.Error("session resolution failed", "contact", contactID, "error", err)
 		return "", fmt.Errorf("session resolution failed: %w", err)
 	}
 
-	return s.handleMessageInternal(resolved.UserID, resolved.SessionID, iface, content)
+	return o.handleMessageInternal(resolved.UserID, resolved.SessionID, iface, content)
 }
 
 // HandleExplicitMessage implements the MessageHandler interface for explicit resolution
 // Used by CLI interface when --user/--session flags are provided
 // Bypasses contact resolution and uses provided IDs directly
-func (s *ConversationService) HandleExplicitMessage(userID, sessionID, iface, content string) (string, error) {
-	return s.handleMessageInternal(userID, sessionID, iface, content)
+func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content string) (string, error) {
+	return o.handleMessageInternal(userID, sessionID, iface, content)
 }
 
 // handleMessageInternal contains the core message handling logic
 // Called by both HandleMessage (after resolution) and HandleExplicitMessage (direct)
-func (s *ConversationService) handleMessageInternal(userID, sessionID, iface, content string) (string, error) {
+func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content string) (string, error) {
 
 	// Load config, tools, and prompt fresh on each request (hot reload)
-	agentCfg, agentIssues := config.LoadAgent(s.AgentFolder)
+	agentCfg, agentIssues := config.LoadAgent(o.AgentFolder)
 	if agentCfg == nil {
 		err := formatValidationError("agent configuration", agentIssues)
-		s.Logger.Error("failed to load agent config", "error", err)
+		o.Logger.Error("failed to load agent config", "error", err)
 		return "", err
 	}
 
-	tools, toolIssues := config.LoadTools(s.AgentFolder, agentCfg.Tools)
-	prompt, promptIssues := config.Parse(s.AgentFolder, map[string]string{})
+	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Tools)
+	prompt, promptIssues := config.Parse(o.AgentFolder, map[string]string{})
 
 	// Collect all validation issues
 	allIssues := append(agentIssues, toolIssues...)
@@ -68,7 +68,7 @@ func (s *ConversationService) handleMessageInternal(userID, sessionID, iface, co
 	for _, issue := range allIssues {
 		if issue.Type == config.IssueError {
 			err := formatValidationError("configuration", allIssues)
-			s.Logger.Error("configuration validation failed", "error", err)
+			o.Logger.Error("configuration validation failed", "error", err)
 			return "", err
 		}
 	}
@@ -76,13 +76,13 @@ func (s *ConversationService) handleMessageInternal(userID, sessionID, iface, co
 	// Load history from session
 	var history []agent.Message
 	if agentCfg.Memory.MaxMessages > 0 {
-		messages, err := s.SessionStore.Load(userID, sessionID, agentCfg.Memory.MaxMessages)
+		messages, err := o.SessionStore.Load(userID, sessionID, agentCfg.Memory.MaxMessages)
 		if err != nil {
-			s.Logger.Error("failed to load session history", "error", err)
+			o.Logger.Error("failed to load session history", "error", err)
 			return "", err
 		}
 
-		// Convert session.Message to agent.Message
+		// Convert internal.Message to agent.Message
 		history = make([]agent.Message, len(messages))
 		for i, msg := range messages {
 			history[i] = agent.Message{
@@ -101,31 +101,31 @@ func (s *ConversationService) handleMessageInternal(userID, sessionID, iface, co
 	}
 
 	// Call agent
-	response, err := agent.Run(agentCfg, tools, prompt, history, input, s.AgentFolder, s.Logger, s.Verbose, s.Debug)
+	response, err := agent.Run(agentCfg, tools, prompt, history, input, o.AgentFolder, o.Logger, o.Verbose, o.Debug)
 	if err != nil {
-		s.Logger.Error("agent execution failed", "error", err)
+		o.Logger.Error("agent execution failed", "error", err)
 		return "", err
 	}
 
 	// Save messages to session
 	if agentCfg.Memory.MaxMessages > 0 {
 		// Check if this is a new session BEFORE saving (file existence = first exchange indicator)
-		isNewSession := !s.SessionStore.SessionExists(userID, sessionID)
-		if s.Debug {
-			s.Logger.Debug("session check", "is_new", isNewSession, "session", sessionID)
+		isNewSession := !o.SessionStore.SessionExists(userID, sessionID)
+		if o.Debug {
+			o.Logger.Debug("session check", "is_new", isNewSession, "session", sessionID)
 		}
 
 		// Save user message and assistant response
-		_ = s.SessionStore.Save(userID, sessionID, "user", content)
-		_ = s.SessionStore.Save(userID, sessionID, "assistant", response)
+		_ = o.SessionStore.Save(userID, sessionID, "user", content)
+		_ = o.SessionStore.Save(userID, sessionID, "assistant", response)
 
 		// Auto-generate title after first exchange (async, non-blocking)
 		if isNewSession {
-			if s.Debug {
-				s.Logger.Debug("launching title generation", "session", sessionID)
+			if o.Debug {
+				o.Logger.Debug("launching title generation", "session", sessionID)
 			}
 			// Pass messages directly to avoid race condition with file I/O
-			go s.generateTitle(agentCfg, userID, sessionID, content, response)
+			go o.generateTitle(agentCfg, userID, sessionID, content, response)
 		}
 	}
 
@@ -134,13 +134,13 @@ func (s *ConversationService) handleMessageInternal(userID, sessionID, iface, co
 
 // generateTitle generates a session title in the background
 // Only called after first exchange (file didn't exist before HandleMessage)
-func (s *ConversationService) generateTitle(cfg *config.AgentConfig, userID, sessionID, userMsg, assistantMsg string) {
-	if s.Debug {
-		s.Logger.Debug("title generation started", "session", sessionID)
+func (o *Orchestrator) generateTitle(cfg *config.AgentConfig, userID, sessionID, userMsg, assistantMsg string) {
+	if o.Debug {
+		o.Logger.Debug("title generation started", "session", sessionID)
 	}
 	// Generate title (errors logged internally)
-	if err := session.GenerateTitle(s.SessionStore, cfg, s.AgentFolder, userID, sessionID, userMsg, assistantMsg, s.Logger); err != nil {
-		s.Logger.Warn("title generation failed", "error", err)
+	if err := session.GenerateTitle(o.SessionStore, cfg, o.AgentFolder, userID, sessionID, userMsg, assistantMsg, o.Logger); err != nil {
+		o.Logger.Warn("title generation failed", "error", err)
 	}
 }
 

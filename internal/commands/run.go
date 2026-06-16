@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
-	"github.com/DeprecatedLuar/agentctl/internal/service"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
@@ -160,8 +160,8 @@ func HandleRun(args []string) error {
 	// Create session store
 	store := session.NewJSONLStore(absPath)
 
-	// Create conversation service (orchestration layer)
-	svc := &service.ConversationService{
+	// Create orchestrator (orchestration layer)
+	orch := &internal.Orchestrator{
 		AgentFolder:  absPath,
 		SessionStore: store,
 		Logger:       lg,
@@ -196,14 +196,14 @@ func HandleRun(args []string) error {
 	for _, iface := range interfacesList {
 		switch iface {
 		case interfaceCLI:
-			cli := interfaces.NewCLI(absPath, svc, store, lg, verbose)
+			cli := interfaces.NewCLI(absPath, orch, store, lg, verbose)
 			go func() {
 				if err := cli.Start(ctx); err != nil {
 					errChan <- fmt.Errorf("%s interface error: %w", interfaceCLI, err)
 				}
 			}()
 		case interfaceTelegram:
-			telegram, err := interfaces.NewTelegram(absPath, transcriber, svc, lg, verbose)
+			telegram, err := interfaces.NewTelegram(absPath, transcriber, orch, lg, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telegram interface: %w", err)
 			}
