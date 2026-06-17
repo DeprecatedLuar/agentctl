@@ -14,7 +14,7 @@ import (
 // 4. Calls GetLast to find existing session or generates new SessionID
 // 5. Calls SetLast to persist
 // Returns ResolvedSession{UserID, SessionID}
-func Resolve(store SessionStore, agentFolder, iface, platformID, displayName string) (ResolvedSession, error) {
+func Resolve(store SessionStore, agentFolder, iface, platformID, displayName, username string) (ResolvedSession, error) {
 	// Step 0: Lazy migration (best-effort, instant if no migration needed)
 	_ = MigrateContact(agentFolder, iface, platformID) // Ignore errors - migration is best-effort
 
@@ -25,7 +25,7 @@ func Resolve(store SessionStore, agentFolder, iface, platformID, displayName str
 	}
 
 	// Step 2: Log contact
-	if err := store.EnsureContact(iface, platformID, displayName); err != nil {
+	if err := store.EnsureContact(iface, platformID, displayName, username); err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to log contact: %w", err)
 	}
 

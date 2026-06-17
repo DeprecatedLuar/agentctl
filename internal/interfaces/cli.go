@@ -155,6 +155,7 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 		// Normal flow: Use username as contact ID
 		contactID := c.username
 		displayName := c.username
+		username := "" // CLI doesn't have @handles
 
 		// Log message received
 		if c.logger != nil {
@@ -167,7 +168,7 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 		}
 
 		// Handle message via service layer (pure I/O adapter)
-		response, runErr := c.handler.HandleMessage(interfaceNameCLI, contactID, displayName, req.Message)
+		response, runErr := c.handler.HandleMessage(interfaceNameCLI, contactID, displayName, username, req.Message)
 
 		if runErr != nil {
 			if c.logger != nil {
@@ -262,6 +263,7 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 		Interface:      interfaceNameCLI,
 		ContactID:      c.username,
 		DisplayName:    c.username,
+		Username:       "", // CLI doesn't have @handles
 		Content:        req.Message,
 		UserID:         req.User,    // Empty unless --user specified
 		SessionID:      req.Session, // Empty unless --session specified

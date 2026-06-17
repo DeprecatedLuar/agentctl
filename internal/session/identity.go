@@ -35,6 +35,7 @@ type Contact struct {
 	Interface   string    `toml:"interface"`
 	ID          string    `toml:"id"`
 	DisplayName string    `toml:"display_name"`
+	Username    string    `toml:"username,omitempty"` // Optional: @handle (e.g., Telegram @username)
 	FirstSeen   time.Time `toml:"first_seen"`
 }
 
@@ -189,7 +190,7 @@ func saveIdentitiesFile(agentFolder string, cfg *identitiesConfig) error {
 // EnsureContact appends contact entry if not already present.
 // Dedup key is interface+id combination.
 // Preserves identities section when writing.
-func EnsureContact(agentFolder, iface, platformID, displayName string) error {
+func EnsureContact(agentFolder, iface, platformID, displayName, username string) error {
 	// Load entire file (both sections)
 	cfg, err := loadIdentitiesFile(agentFolder)
 	if err != nil {
@@ -209,6 +210,7 @@ func EnsureContact(agentFolder, iface, platformID, displayName string) error {
 		Interface:   iface,
 		ID:          platformID,
 		DisplayName: displayName,
+		Username:    username,
 		FirstSeen:   time.Now(),
 	}
 

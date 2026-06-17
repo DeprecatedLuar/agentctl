@@ -100,7 +100,15 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 
 	// Extract contact information
 	contactID := strconv.FormatInt(userID, 10)
-	displayName := message.From.UserName
+
+	// Build display name from FirstName + LastName
+	displayName := message.From.FirstName
+	if message.From.LastName != "" {
+		displayName += " " + message.From.LastName
+	}
+
+	// Extract @username handle (optional)
+	username := message.From.UserName
 
 	// Handle /start command
 	if text == "/start" {
@@ -146,7 +154,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	go t.sendTypingLoop(typingCtx, bot, chatID)
 
 	// Handle message via service layer (pure I/O adapter)
-	response, runErr := t.handler.HandleMessage(interfaceNameTelegram, contactID, displayName, text)
+	response, runErr := t.handler.HandleMessage(interfaceNameTelegram, contactID, displayName, username, text)
 
 	// Stop typing indicator
 	cancelTyping()

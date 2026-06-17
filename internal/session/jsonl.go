@@ -476,8 +476,8 @@ func (s *JSONLStore) ListSessions(userID string) ([]SessionMeta, error) {
 }
 
 // EnsureContact delegates to the contacts.go implementation
-func (s *JSONLStore) EnsureContact(iface, platformID, displayName string) error {
-	return EnsureContact(s.AgentFolder, iface, platformID, displayName)
+func (s *JSONLStore) EnsureContact(iface, platformID, displayName, username string) error {
+	return EnsureContact(s.AgentFolder, iface, platformID, displayName, username)
 }
 
 // ResolveUser delegates to the identity.go implementation

@@ -77,7 +77,7 @@ The system follows hexagonal architecture with clear separation between I/O adap
                │
                ├─→ SessionStore (port)
                ├─→ agent.Run() (direct)
-               └─→ Dispatcher (port, future)
+               └─→ OutboundDispatcher (port)
 
 ┌─────────────────────────────────────┐
 │   OUTPUT ADAPTERS                   │
@@ -111,25 +111,37 @@ The system follows hexagonal architecture with clear separation between I/O adap
 - No logging or formatting - pure function
 
 **5. internal/** - Application layer (ports & orchestration)
-- `ports.go`: Input port interfaces (MessageHandler, Dispatcher, Interface)
-  - MessageHandler: Application boundary for message processing
-  - Dispatcher: Response delivery abstraction (future)
+- `ports.go`: Input port interfaces (MessageHandler, OutboundDispatcher, Interface)
+  - MessageHandler: Application boundary with three methods:
+    - HandleMessage() - auto contact resolution
+    - HandleExplicitMessage() - explicit user/session (CLI --user/--session)
+    - HandleMessageWithOptions() - delivery options (--channel, --tools)
+  - MessageOptions: struct with Channels/ChannelsInject/Tools fields
+  - OutboundDispatcher: Cross-interface message delivery abstraction
   - Interface: Adapter contract for CLI/Telegram/etc
 - `orchestration.go`: Orchestrator implementation
   - Implements MessageHandler interface
   - HandleMessage(iface, contactID, displayName, content) - auto resolution
   - HandleExplicitMessage(userID, sessionID, iface, content) - explicit resolution (CLI only)
+  - HandleMessageWithOptions(opts MessageOptions) - delivery + tool whitelisting
   - Pure orchestration: calls session API → config API → agent → session API
   - No domain logic, only sequencing port calls
   - Loads config/tools/prompt fresh on each request (hot-reload)
   - Triggers async title generation for new sessions
+  - deliverToChannels() resolves and dispatches to multiple interfaces
 
 **6. internal/interfaces** - I/O adapters (pure transport layer)
 - `cli.go`: Unix socket listener, JSON protocol
   - Normal flow: pure I/O adapter (passes contact ID to handler)
   - Exception: Explicit resolution for `--user/--session` flags (uses session.ResolveExplicit)
+  - Implements Sender interface for outbound delivery (Send() not yet implemented)
 - `telegram.go`: Telegram bot with long polling, typing indicators
   - Pure I/O adapter (no session imports, no resolution logic)
+  - Implements Sender interface for outbound delivery via bot API
+- `dispatch.go`: Outbound message dispatcher
+  - Sender interface: InterfaceName() and Send(platformID, content)
+  - OutboundDispatcher: registers interface senders, routes Send() calls
+  - Used for --channel and --channel-inject delivery
 - **Key principle**: Interfaces are thin I/O adapters that call MessageHandler, nothing more
 
 **7. internal/session** - Session management domain (port implementation)
@@ -138,9 +150,14 @@ The system follows hexagonal architecture with clear separation between I/O adap
   - ResolveUser() for linking contacts to named identities
   - EnsureContact() for auto-logging contacts with deduplication
   - LoadIdentities() and saveIdentitiesFile() preserve both sections
-- `last.go`: .last_session tracking (plain text `interface=sessionID` format)
+  - WarnDuplicateContacts() logs startup warnings for duplicate interface contacts
 - `jsonl.go`: JSONL storage implementation with per-session mutex for race protection
-- `resolve.go`: Resolve() for auto user/session resolution, ResolveExplicit() for explicit CLI flags
+- `resolve.go`: Session resolution functions
+  - Resolve() for auto user/session resolution
+  - ResolveExplicit() for explicit CLI flags (--user/--session)
+  - ResolveChannel() parses "user@interface" or "interface" for channel delivery
+  - LookupPlatformID() reverse lookup from identity ID to platform ID
+- `inject.go`: InjectTurn() writes turn to session without running agent (used by inject command and --channel-inject)
 - `migrate.go`: MigrateOnStartup() for bulk migration, MigrateContact() for lazy per-message migration
 - `title.go`: GenerateTitle() for async LLM-based session title generation
 - `store.go`: SessionStore interface + domain types (Message, SessionMeta)
@@ -152,8 +169,11 @@ The system follows hexagonal architecture with clear separation between I/O adap
 
 **8. internal/commands** - CLI command handlers
 - `init.go`: Scaffold agent folder from embedded templates (idempotent - skips existing files)
-- `run.go`: Start daemon, load config/tools/prompt, spawn interfaces, run migration
-- `chat.go`: Send message to Unix socket (defaults to current dir, flags: --agent/-a, --user/-u, --session/-s)
+- `run.go`: Start daemon, load config/tools/prompt, spawn interfaces, run migration, create dispatcher
+- `chat.go`: Send message to Unix socket
+  - Flags: --agent/-a, --user/-u, --session/-s, --channel, --channel-inject, --tools, --debug
+  - Supports comma-separated lists for channel and tool flags
+- `inject.go`: Manual session injection without running agent (--role, --session, --agent)
 
 **9. internal/directives** - Directive processor for {{file:}} and {{exec:}} syntax
 - `process.go`: ProcessDirectives() with recursive expansion (10-level depth limit)
@@ -358,6 +378,12 @@ Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
 **Session Resolution:**
 - `Resolve(store, agentFolder, iface, contactID, displayName)` - Auto resolution (used by Orchestrator)
 - `ResolveExplicit(store, agentFolder, userID, sessionID, iface)` - Explicit resolution (used by CLI for --user/--session)
+- `ResolveChannel(store, agentFolder, channelStr, currentUserID)` - Channel resolution for delivery
+  - Parses "user@interface" or "interface" syntax
+  - Returns userID, platformID, sessionID for delivery
+  - Creates new session if none exists (consistent with Resolve)
+- `LookupPlatformID(agentFolder, userID, iface)` - Reverse lookup from identity ID to platform ID
+  - First match wins when identity has multiple contacts for same interface
 - Contact auto-logged to `.data/contacts.toml` (deduplication by interface+id)
 - `memory.max_messages` in agent.toml controls history limit (0 = unlimited)
 
@@ -406,6 +432,27 @@ CLI → session.ResolveExplicit() → internal.MessageHandler.HandleExplicitMess
                                  return response
 ```
 
+**Delivery Flow (--channel/--channel-inject/--tools flags):**
+```
+CLI → internal.MessageHandler.HandleMessageWithOptions(MessageOptions)
+         ↓
+    internal.Orchestrator
+         ↓
+    session.Resolve() or ResolveExplicit() → filterTools() if --tools
+         ↓
+    agent.Run() with whitelisted tools
+         ↓
+    session.Save()
+         ↓
+    deliverToChannels():
+      - Parse each channel string (user@interface or interface)
+      - session.ResolveChannel() → userID, platformID, sessionID
+      - dispatcher.Send(interface, platformID, response)
+      - If --channel-inject: session.InjectTurn() into target session
+         ↓
+    return response
+```
+
 ### Help System
 
 Uses `github.com/DeprecatedLuar/gohelp-luar` for formatted CLI help:
@@ -445,10 +492,11 @@ Two complementary debugging mechanisms:
 ### Key Design Decisions
 
 - **Hexagonal architecture** - Clear separation: I/O adapters → orchestration → domain logic
-- **Ports at package root** - All input ports in `internal/ports.go` (MessageHandler, Dispatcher, Interface)
+- **Ports at package root** - All input ports in `internal/ports.go` (MessageHandler, OutboundDispatcher, Interface)
 - **Orchestrator at top-level** - `internal/orchestration.go` for shorter imports and architectural clarity
 - **SessionStore in domain** - Kept in `session/` package to avoid circular imports (domain types stay with interface)
 - **Merged identities & contacts** - Single `.data/contacts.toml` file with both user-edited identities and auto-generated contacts
+- **Outbound dispatcher** - Cross-interface message delivery via Sender interface registration
 - **No CLI framework** - Simple stdlib arg parsing (KISS principle), gohelp-luar for documentation only
 - **Modular providers** - Each provider in separate file (openai.go, openrouter.go) for single responsibility
 - **Daemon architecture** - Single process, config-driven interfaces (agent.toml: `interfaces = ["cli", "telegram"]`)
@@ -462,6 +510,8 @@ Two complementary debugging mechanisms:
 - **XDG agent registry** - Name-based agent resolution via `~/.local/share/agentctl/agents`
 - **Async title generation** - LLM-generated titles don't block user responses, run in background
 - **Per-session mutexes** - Prevents race conditions in concurrent file operations without global locking
+- **Channel delivery** - ResolveChannel receives identity ID (not raw username) for consistent semantics
+- **Tool whitelisting** - Runtime --tools flag filters available tools without config changes
 
 ### Adding New Providers
 

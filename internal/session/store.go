@@ -39,7 +39,7 @@ type SessionStore interface {
 	ListSessions(userID string) ([]SessionMeta, error)
 
 	// EnsureContact logs a contact if not already present
-	EnsureContact(iface, platformID, displayName string) error
+	EnsureContact(iface, platformID, displayName, username string) error
 
 	// ResolveUser returns userID for a given interface+platformID
 	ResolveUser(iface, platformID string) (string, error)

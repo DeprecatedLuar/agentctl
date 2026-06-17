@@ -10,6 +10,7 @@ type MessageOptions struct {
 	Interface   string
 	ContactID   string
 	DisplayName string
+	Username    string // Optional: @handle (e.g., Telegram @username)
 	Content     string
 
 	// Explicit resolution (CLI only)
@@ -26,7 +27,7 @@ type MessageOptions struct {
 // Implemented by the orchestration layer, injected into interfaces
 type MessageHandler interface {
 	// HandleMessage processes a message with automatic contact resolution
-	HandleMessage(iface, contactID, displayName, content string) (string, error)
+	HandleMessage(iface, contactID, displayName, username, content string) (string, error)
 
 	// HandleExplicitMessage processes a message with explicit user/session IDs
 	// Used only by CLI interface for --user/--session flags (bypasses contact resolution)

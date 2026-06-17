@@ -28,9 +28,9 @@ type Orchestrator struct {
 // - Calls agent
 // - Saves messages
 // - Triggers title generation (async, first turn only)
-func (o *Orchestrator) HandleMessage(iface, contactID, displayName, content string) (string, error) {
+func (o *Orchestrator) HandleMessage(iface, contactID, displayName, username, content string) (string, error) {
 	// Resolve session from contact ID
-	resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, iface, contactID, displayName)
+	resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, iface, contactID, displayName, username)
 	if err != nil {
 		o.Logger.Error("session resolution failed", "contact", contactID, "error", err)
 		return "", fmt.Errorf("session resolution failed: %w", err)
@@ -163,7 +163,7 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 		sessionID = resolved.SessionID
 	} else {
 		// Auto resolution (like HandleMessage)
-		resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, opts.Interface, opts.ContactID, opts.DisplayName)
+		resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, opts.Interface, opts.ContactID, opts.DisplayName, opts.Username)
 		if err != nil {
 			o.Logger.Error("session resolution failed", "contact", opts.ContactID, "error", err)
 			return "", fmt.Errorf("session resolution failed: %w", err)

@@ -40,6 +40,7 @@ cp agentctl ~/bin/  # or /usr/local/bin
 | `init [path]` | Create agent folder with templates | `agentctl init my-agent` |
 | `run [path]` | Start daemon with configured interfaces | `agentctl run my-agent` |
 | `chat <message>` | Send message to running daemon | `agentctl chat "analyze logs" -a my-agent` |
+| `inject <content>` | Inject turn into session without running agent | `agentctl inject "response" --role assistant --session 20260614_abc` |
 | `toolrun <name>` | Execute tool manually with parameters | `agentctl toolrun weather --city=London` |
 | `getagent` | Print current agent name from registry | `agentctl getagent` |
 | `models [provider]` | List available models | `agentctl models openrouter --free --tools` |
@@ -56,8 +57,16 @@ cp agentctl ~/bin/  # or /usr/local/bin
 - `-a, --agent <path>` - Agent folder path (default: current dir)
 - `-u, --user <id>` - User ID for session (default: system username)
 - `-s, --session <id>` - Session ID (default: last session or new)
+- `--channel <list>` - Deliver response to channels (comma-separated: `telegram,cli`)
+- `--channel-inject <list>` - Deliver and inject into channel sessions (comma-separated)
+- `--tools <list>` - Whitelist tools for this run (comma-separated, overrides agent.toml)
 - `--debug` - Show session file path in output
 - Env vars: `AGENTCTL_USER`, `AGENTCTL_SESSION` (flags take priority)
+
+**`inject` command:**
+- `--role <assistant|user>` - Role of injected turn (required)
+- `--session <id>` - Session ID to inject into (required)
+- `-a, --agent <path>` - Agent folder path (default: current dir)
 
 **`models` command:**
 - `--free` - Show only free models
@@ -73,14 +82,14 @@ cp agentctl ~/bin/  # or /usr/local/bin
 ```
 my-agent/
 ├── config/
-│   ├── agent.toml          # Provider, model, interfaces, memory config
-│   └── identities.toml     # Identity linking (multiple contacts per user)
+│   └── agent.toml          # Provider, model, interfaces, memory config
 ├── prompts/
 │   └── default             # Prompt template with sections
 ├── tools/                  # Tool definitions (*.toml)
 │   └── example.toml        # Example tool (excluded from auto-load)
 ├── .env                    # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
 └── .data/                  # Runtime data (auto-created)
+    ├── contacts.toml       # Identities (user-edited) + contacts (auto-generated)
     ├── agent.sock          # Unix socket for CLI interface
     ├── sessions/           # Conversation history (per-user, per-session)
     │   └── {userID}/
@@ -353,9 +362,12 @@ Both interfaces share the same agent runtime and session storage.
 
 ### Identity Linking
 
-Link multiple contact points to a single user identity in `config/identities.toml`:
+Link multiple contact points to a single user identity in `.data/contacts.toml`:
 
 ```toml
+# ============================================
+# IDENTITIES (user-edited)
+# ============================================
 [[identity]]
 id = "alice"
 contacts = ["cli:alice", "telegram:123456789"]
@@ -363,7 +375,22 @@ contacts = ["cli:alice", "telegram:123456789"]
 [[identity]]
 id = "bob"
 contacts = ["telegram:987654321"]
+
+# ============================================
+# CONTACTS (auto-generated - do not edit)
+# ============================================
+[[contact]]
+interface = "telegram"
+id = "123456789"
+display_name = "Alice"
+first_seen = 2026-06-17T15:04:05Z
 ```
+
+**File structure:**
+- `.data/contacts.toml` contains both user-edited identities and auto-generated contacts
+- Created automatically on first message
+- Edit `[[identity]]` section to link contacts
+- `[[contact]]` section is managed automatically
 
 **Benefits:**
 - Unified conversation history across interfaces
@@ -377,7 +404,7 @@ contacts = ["telegram:987654321"]
 **Migration:**
 - Startup: Migrates all unlinked contacts on daemon start
 - Lazy: Auto-migrates on first message after adding to identity
-- No daemon restart needed when updating identities.toml
+- No daemon restart needed when updating contacts.toml
 - Sessions automatically consolidated into identity folder
 
 ## Advanced Features
@@ -465,9 +492,83 @@ max_messages = 0  # 0 = unlimited (recommended for development)
 - JSONL format (plain text, one message per line)
 - Automatic migration when contacts are linked to identities
 
+### Cross-Interface Message Delivery
+
+Send messages from one interface and deliver to others:
+
+```bash
+# Send from CLI, deliver to telegram (doesn't modify telegram session)
+agentctl chat "update" --channel telegram
+
+# Deliver to multiple channels
+agentctl chat "broadcast" --channel telegram,cli
+
+# Deliver AND inject into target session (preserves history)
+agentctl chat "update" --channel-inject telegram
+
+# Specify user explicitly (user@interface format)
+agentctl chat "message" --channel alice@telegram
+```
+
+**Channel syntax:**
+- `telegram` - Deliver to current user's telegram contact
+- `alice@telegram` - Deliver to specific user's telegram contact
+- Comma-separated lists for multiple targets
+
+**Behavior:**
+- `--channel`: Delivers response without modifying target session
+- `--channel-inject`: Delivers AND adds assistant turn to target session
+- Response shown on CLI regardless of delivery targets
+- Delivery failures logged as warnings, don't break request
+
+### Tool Whitelisting
+
+Override agent.toml tools for a single run:
+
+```bash
+# Only expose specific tools for this request
+agentctl chat "task" --tools "web_fetch,file_reader"
+
+# Single tool
+agentctl chat "search" --tools "web_search"
+```
+
+**Behavior:**
+- Comma-separated tool names
+- Overrides `tools = []` in agent.toml for this run only
+- Other requests use normal tool configuration
+- Config file unchanged
+
+### Session Injection
+
+Manually add turns to sessions without running agent:
+
+```bash
+# Inject assistant response
+agentctl inject "Here's the data" --role assistant --session 20260614_150000_abc
+
+# Inject user message
+agentctl inject "follow up question" --role user --session 20260614_150000_abc
+
+# Specify agent
+agentctl inject "response" --role assistant --session 20260614_abc -a my-agent
+```
+
+**Use cases:**
+- Pre-populate conversations
+- Fix conversation history
+- Testing and debugging
+- Cross-agent coordination
+
+**Behavior:**
+- Session must exist (error if not found)
+- No agent execution, direct JSONL append
+- Preserves conversation flow
+- Respects memory.max_messages limit
+
 ### Manual Tool Execution
 
-Test tools without running the agent:
+Test tools without running agent:
 
 ```bash
 # Execute tool with parameters
@@ -597,8 +698,9 @@ agentctl run → daemon starts → loads interfaces from agent.toml
 - **internal/config** - File loading (agent.toml, tools/*.toml, prompt)
 - **internal/providers/llm** - AI provider abstraction (openai, openrouter, generic)
 - **internal/agent** - Orchestration (agentic loop, tool execution)
-- **internal/interfaces** - Interface abstraction (CLI, Telegram)
-- **internal/session** - Session management (identity linking, migration, JSONL persistence)
+- **internal/interfaces** - Interface abstraction (CLI, Telegram) + outbound dispatcher
+- **internal/session** - Session management (identity linking, migration, JSONL persistence, channel resolution)
+- **internal/orchestration** - Application layer (message handling, delivery coordination, tool filtering)
 - **internal/shell** - Pure shell execution utility
 - **internal/directives** - Directive processor ({{file:}}, {{exec:}})
 
