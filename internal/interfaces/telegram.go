@@ -9,10 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
+	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 )
@@ -32,13 +35,14 @@ type TelegramInterface struct {
 	token       string
 	transcriber audio.Transcriber // Optional, for voice message support
 	handler     internal.MessageHandler
+	store       session.SessionStore // For command handling
 	logger      *slog.Logger
 	verbose     bool
 	bot         *tgbotapi.BotAPI // Initialized in Start, used by Sender interface
 }
 
 // NewTelegram creates a new Telegram interface
-func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler internal.MessageHandler, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
+func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler internal.MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
 	// Load .env from agent folder
 	envPath := filepath.Join(agentFolder, telegramEnvFile)
 	_ = godotenv.Load(envPath)
@@ -53,6 +57,7 @@ func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler inte
 		token:       token,
 		transcriber: transcriber,
 		handler:     handler,
+		store:       store,
 		logger:      logger,
 		verbose:     verbose,
 	}, nil
@@ -137,6 +142,22 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		if t.logger != nil {
 			t.logger.Info("voice message transcribed", "contact", contactID, "text", text)
 		}
+	}
+
+	// Check if message is a command (but not /start, already handled above)
+	cmd, cmdErr := syscommands.Parse(text)
+	if cmdErr == nil {
+		// Handle command in Telegram layer (no typing indicator for commands)
+		response, err := t.handleCommand(cmd, contactID)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Error: %v", err)
+			msg := tgbotapi.NewMessage(chatID, errorMsg)
+			bot.Send(msg)
+		} else {
+			msg := tgbotapi.NewMessage(chatID, response)
+			bot.Send(msg)
+		}
+		return
 	}
 
 	// Log message received
@@ -258,4 +279,83 @@ func (t *TelegramInterface) Send(platformID, content string) error {
 	msg := tgbotapi.NewMessage(chatID, content)
 	_, err = t.bot.Send(msg)
 	return err
+}
+
+// handleCommand processes commands and returns Telegram-formatted output
+func (t *TelegramInterface) handleCommand(cmd *syscommands.Command, contactID string) (string, error) {
+	// Resolve user ID
+	userID, err := t.store.ResolveUser(interfaceNameTelegram, contactID)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve user: %w", err)
+	}
+
+	switch cmd.Name {
+	case "new":
+		result, err := syscommands.NewSession(userID, interfaceNameTelegram, t.store, t.agentFolder)
+		if err != nil {
+			return "", err
+		}
+		return formatNewSession(result), nil
+
+	case "sessions":
+		// Telegram doesn't support numbered switching yet
+		// Future: return inline keyboard buttons
+		if len(cmd.Args) > 0 && cmd.Args[0] == "attach" {
+			return "", fmt.Errorf("/sessions attach not supported on Telegram (use numbered list on CLI)")
+		}
+		// List sessions
+		result, err := syscommands.ListSessions(userID, interfaceNameTelegram, t.store)
+		if err != nil {
+			return "", err
+		}
+		return formatTelegramSessionList(result), nil
+
+	default:
+		return "", fmt.Errorf("unknown command: /%s", cmd.Name)
+	}
+}
+
+// formatNewSession formats /new command result for Telegram
+func formatNewSession(result syscommands.CommandResult) string {
+	data := result.Data.(map[string]string)
+	return fmt.Sprintf("New session started\n\nModel: %s\nProvider: %s\nMemory: %s messages",
+		data["model"], data["provider"], data["memory"])
+}
+
+// formatTelegramSessionList formats /sessions command result for Telegram (plain list)
+func formatTelegramSessionList(result syscommands.CommandResult) string {
+	sessions := result.Data.([]syscommands.SessionInfo)
+	if len(sessions) == 0 {
+		return "No sessions found"
+	}
+
+	var b strings.Builder
+	b.WriteString("Sessions:\n")
+	for _, s := range sessions {
+		title := s.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+
+		// Format date from timestamp
+		date := formatTelegramTimestamp(s.CreatedAt)
+
+		// Build line: "- Title (date) [active]"
+		b.WriteString(fmt.Sprintf("- %s (%s)", title, date))
+		if s.IsActive {
+			b.WriteString(" [active]")
+		}
+		b.WriteString("\n")
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+// formatTelegramTimestamp converts Unix timestamp to YYYY-MM-DD format
+func formatTelegramTimestamp(ts int64) string {
+	if ts == 0 {
+		return "unknown"
+	}
+	t := time.Unix(ts, 0)
+	return t.Format("2006-01-02")
 }

@@ -209,7 +209,7 @@ func HandleRun(args []string) error {
 			dispatcher.Register(cli)
 			interfaceInstances = append(interfaceInstances, cli)
 		case interfaceTelegram:
-			telegram, err := interfaces.NewTelegram(absPath, transcriber, orch, lg, verbose)
+			telegram, err := interfaces.NewTelegram(absPath, transcriber, orch, store, lg, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telegram interface: %w", err)
 			}

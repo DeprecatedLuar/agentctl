@@ -469,6 +469,9 @@ func (s *JSONLStore) ListSessions(userID string) ([]SessionMeta, error) {
 			continue
 		}
 
+		// Populate SessionID from filename (not stored in JSONL metadata)
+		meta.SessionID = sessionID
+
 		sessions = append(sessions, meta)
 	}
 

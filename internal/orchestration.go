@@ -371,3 +371,4 @@ func formatValidationError(context string, issues []config.ValidationIssue) erro
 	}
 	return fmt.Errorf("%s failed: %s", context, strings.Join(msgs, "; "))
 }
+

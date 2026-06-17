@@ -9,6 +9,7 @@ type Message struct {
 
 // SessionMeta contains metadata about a session
 type SessionMeta struct {
+	SessionID string `json:"session_id"` // Session identifier (populated by ListSessions from filename)
 	Title     string `json:"title"`
 	CreatedAt int64  `json:"created_at"`
 	Interface string `json:"interface"`
