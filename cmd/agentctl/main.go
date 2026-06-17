@@ -49,6 +49,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "inject":
+		if err := commands.HandleInject(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "help":
 		printHelp(args)
 	default:
@@ -70,6 +75,7 @@ func printHelp(args []string) {
 			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
 			gohelp.Item("chat <message>", "Send message to running agent daemon", "agentctl chat \"hello\" -a my-agent"),
+			gohelp.Item("inject <content>", "Inject a turn into a session without running agent", "agentctl inject \"response\" --role assistant --session 20250614_abc -a my-agent"),
 			gohelp.Item("toolrun <name>", "Execute a tool manually with parameters", "agentctl toolrun create_schedule --name=test --cron=\"0 * * * *\" --message=\"Test\""),
 			gohelp.Item("getagent", "Print current agent name", "agentctl getagent"),
 			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
@@ -77,7 +83,17 @@ func printHelp(args []string) {
 		).
 		Section("Chat Flags",
 			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
-			gohelp.Item("--session, -s <key>", "Session key for memory isolation"),
+			gohelp.Item("--session, -s <id>", "Session ID for explicit session selection"),
+			gohelp.Item("--user, -u <id>", "User ID for explicit user selection"),
+			gohelp.Item("--channel <list>", "Deliver response to channels (comma-separated, e.g., telegram,cli)"),
+			gohelp.Item("--channel-inject <list>", "Deliver and inject into channel sessions (comma-separated)"),
+			gohelp.Item("--tools <list>", "Whitelist tools for this run (comma-separated)"),
+			gohelp.Item("--debug", "Show debug information including session file path"),
+		).
+		Section("Inject Flags",
+			gohelp.Item("--role <assistant|user>", "Role of the injected turn (required)"),
+			gohelp.Item("--session, -s <id>", "Session ID to inject into (required)"),
+			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
 		).
 		Section("Toolrun Flags",
 			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),

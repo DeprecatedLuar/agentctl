@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
@@ -17,12 +18,15 @@ const (
 	socketFilename = "agent.sock"
 
 	// Flags
-	flagAgent    = "--agent"
-	flagAgentS   = "-a"
-	flagUser     = "--user"
-	flagUserS    = "-u"
-	flagSession  = "--session"
-	flagSessionS = "-s"
+	flagAgent         = "--agent"
+	flagAgentS        = "-a"
+	flagUser          = "--user"
+	flagUserS         = "-u"
+	flagSession       = "--session"
+	flagSessionS      = "-s"
+	flagChannel       = "--channel"
+	flagChannelInject = "--channel-inject"
+	flagTools         = "--tools"
 	// flagDebug is defined in run.go and shared across commands
 
 	// Environment variables
@@ -31,10 +35,13 @@ const (
 )
 
 type chatRequest struct {
-	User    string `json:"user"`
-	Session string `json:"session"`
-	Message string `json:"message"`
-	Debug   bool   `json:"debug"`
+	User          string   `json:"user"`
+	Session       string   `json:"session"`
+	Message       string   `json:"message"`
+	Debug         bool     `json:"debug"`
+	Channel       []string `json:"channel,omitempty"`
+	ChannelInject []string `json:"channel_inject,omitempty"`
+	Tools         []string `json:"tools,omitempty"`
 }
 
 type chatResponse struct {
@@ -45,7 +52,7 @@ type chatResponse struct {
 
 func HandleChat(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: agentctl chat <message> [--agent name|path] [--user id] [--session id] [--debug]")
+		return fmt.Errorf("usage: agentctl chat <message> [--agent name|path] [--user id] [--session id] [--channel list] [--channel-inject list] [--tools list] [--debug]")
 	}
 
 	// Parse arguments
@@ -54,6 +61,9 @@ func HandleChat(args []string) error {
 	sessionKey := ""
 	message := ""
 	debug := false
+	var channels []string
+	var channelsInject []string
+	var tools []string
 
 	i := 0
 	for i < len(args) {
@@ -75,6 +85,24 @@ func HandleChat(args []string) error {
 				return fmt.Errorf("%s requires an id", flagSession)
 			}
 			sessionKey = args[i+1]
+			i += 2
+		case flagChannel:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a comma-separated list", flagChannel)
+			}
+			channels = parseCommaSeparated(args[i+1])
+			i += 2
+		case flagChannelInject:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a comma-separated list", flagChannelInject)
+			}
+			channelsInject = parseCommaSeparated(args[i+1])
+			i += 2
+		case flagTools:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a comma-separated list", flagTools)
+			}
+			tools = parseCommaSeparated(args[i+1])
 			i += 2
 		case flagDebug:
 			debug = true
@@ -116,10 +144,13 @@ func HandleChat(args []string) error {
 
 	// Send request
 	req := chatRequest{
-		User:    user,
-		Session: sessionKey,
-		Message: message,
-		Debug:   debug,
+		User:          user,
+		Session:       sessionKey,
+		Message:       message,
+		Debug:         debug,
+		Channel:       channels,
+		ChannelInject: channelsInject,
+		Tools:         tools,
 	}
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
@@ -149,4 +180,21 @@ func HandleChat(args []string) error {
 	}
 
 	return nil
+}
+
+// parseCommaSeparated splits a comma-separated string into a slice
+func parseCommaSeparated(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

@@ -5,8 +5,8 @@ import _ "embed"
 //go:embed files/config/agent.toml
 var AgentToml string
 
-//go:embed files/config/identities.toml
-var IdentitiesToml string
+//go:embed files/.data/contacts.toml
+var ContactsToml string
 
 //go:embed files/prompts/default
 var Prompt string

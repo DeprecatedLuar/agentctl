@@ -66,7 +66,7 @@ The system follows hexagonal architecture with clear separation between I/O adap
                ↓
 ┌─────────────────────────────────────┐
 │   APPLICATION (Orchestrator)        │
-│   ConversationService               │
+│   internal.Orchestrator             │
 │   - session.Resolve()               │
 │   - config/tools/prompt loading     │
 │   - session.Load() history          │
@@ -110,31 +110,12 @@ The system follows hexagonal architecture with clear separation between I/O adap
 - Used by both ExecuteTool and prompt directive processor
 - No logging or formatting - pure function
 
-**5. internal/interfaces** - I/O adapters (pure transport layer)
-- `interface.go`: MessageHandler port (application contract), Dispatcher port (future)
-- `cli.go`: Unix socket listener, JSON protocol
-  - Normal flow: pure I/O adapter (passes contact ID to handler)
-  - Exception: Explicit resolution for `--user/--session` flags (uses session.ResolveExplicit)
-- `telegram.go`: Telegram bot with long polling, typing indicators
-  - Pure I/O adapter (no session imports, no resolution logic)
-- **Key principle**: Interfaces are thin I/O adapters that call MessageHandler, nothing more
-
-**6. internal/session** - Session management domain (port implementation)
-- `session.go`: ResolvedSession type, NewSessionID() with `YYYYMMDD_HHMMSS_<6-hex>` format, SessionMeta with title
-- `identity.go`: identities.toml parsing, ResolveUser() for linking contacts to named identities
-- `contacts.go`: Contact logging with deduplication
-- `last.go`: .last_session tracking (plain text `interface=sessionID` format)
-- `jsonl.go`: JSONL storage implementation with per-session mutex for race protection
-- `resolve.go`: Resolve() for auto user/session resolution, ResolveExplicit() for explicit CLI flags
-- `migrate.go`: MigrateOnStartup() for bulk migration, MigrateContact() for lazy per-message migration
-- `title.go`: GenerateTitle() for async LLM-based session title generation
-- `store.go`: SessionStore interface (port contract)
-- Storage: `{agent_folder}/.data/sessions/{userID}/{sessionID}.jsonl`
-- Respects `memory.max_messages` limit from agent.toml
-- **Thread Safety**: Per-session mutexes prevent race conditions between concurrent Save/Load/SetMeta operations
-
-**7. internal/service** - Application orchestration layer
-- `conversation.go`: ConversationService orchestrates full message flow
+**5. internal/** - Application layer (ports & orchestration)
+- `ports.go`: Input port interfaces (MessageHandler, Dispatcher, Interface)
+  - MessageHandler: Application boundary for message processing
+  - Dispatcher: Response delivery abstraction (future)
+  - Interface: Adapter contract for CLI/Telegram/etc
+- `orchestration.go`: Orchestrator implementation
   - Implements MessageHandler interface
   - HandleMessage(iface, contactID, displayName, content) - auto resolution
   - HandleExplicitMessage(userID, sessionID, iface, content) - explicit resolution (CLI only)
@@ -143,8 +124,34 @@ The system follows hexagonal architecture with clear separation between I/O adap
   - Loads config/tools/prompt fresh on each request (hot-reload)
   - Triggers async title generation for new sessions
 
+**6. internal/interfaces** - I/O adapters (pure transport layer)
+- `cli.go`: Unix socket listener, JSON protocol
+  - Normal flow: pure I/O adapter (passes contact ID to handler)
+  - Exception: Explicit resolution for `--user/--session` flags (uses session.ResolveExplicit)
+- `telegram.go`: Telegram bot with long polling, typing indicators
+  - Pure I/O adapter (no session imports, no resolution logic)
+- **Key principle**: Interfaces are thin I/O adapters that call MessageHandler, nothing more
+
+**7. internal/session** - Session management domain (port implementation)
+- `session.go`: ResolvedSession type, NewSessionID() with `YYYYMMDD_HHMMSS_<6-hex>` format, SessionMeta with title
+- `identity.go`: Merged identities and contacts in `.data/contacts.toml` - both [[identity]] and [[contact]] sections in single file
+  - ResolveUser() for linking contacts to named identities
+  - EnsureContact() for auto-logging contacts with deduplication
+  - LoadIdentities() and saveIdentitiesFile() preserve both sections
+- `last.go`: .last_session tracking (plain text `interface=sessionID` format)
+- `jsonl.go`: JSONL storage implementation with per-session mutex for race protection
+- `resolve.go`: Resolve() for auto user/session resolution, ResolveExplicit() for explicit CLI flags
+- `migrate.go`: MigrateOnStartup() for bulk migration, MigrateContact() for lazy per-message migration
+- `title.go`: GenerateTitle() for async LLM-based session title generation
+- `store.go`: SessionStore interface + domain types (Message, SessionMeta)
+  - SessionStore kept in session package to avoid circular imports
+  - Domain types remain with their interface
+- Storage: `{agent_folder}/.data/sessions/{userID}/{sessionID}.jsonl`
+- Respects `memory.max_messages` limit from agent.toml
+- **Thread Safety**: Per-session mutexes prevent race conditions between concurrent Save/Load/SetMeta operations
+
 **8. internal/commands** - CLI command handlers
-- `init.go`: Scaffold agent folder from embedded templates
+- `init.go`: Scaffold agent folder from embedded templates (idempotent - skips existing files)
 - `run.go`: Start daemon, load config/tools/prompt, spawn interfaces, run migration
 - `chat.go`: Send message to Unix socket (defaults to current dir, flags: --agent/-a, --user/-u, --session/-s)
 
@@ -176,13 +183,13 @@ The system follows hexagonal architecture with clear separation between I/O adap
 agent-folder/
   config/
     agent.toml          # provider, model, tools, interfaces, memory, debug_calls config
-    identities.toml     # Identity linking (multiple contacts per user)
   prompts/
     default             # [>role] static, [>>role] input sections
   tools/
     *.toml              # Tool definitions (example.toml excluded from auto-load)
   .env                  # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
   .data/
+    contacts.toml       # Merged file: [[identity]] (user-edited) + [[contact]] (auto-generated)
     agent.sock          # Unix socket for CLI interface
     sessions/
       {userID}/
@@ -196,7 +203,7 @@ agent-folder/
 
 **Config Paths:**
 - Agent config: `config/agent.toml`
-- Identities: `config/identities.toml`
+- Identities & Contacts: `.data/contacts.toml` (merged file, created on first message)
 - Prompt: `prompts/default`
 - Registry: `~/.local/share/agentctl/agents`
 
@@ -307,18 +314,39 @@ Sessions are organized by user ID and session ID, with support for linking multi
 - Session ID: `YYYYMMDD_HHMMSS_<6-hex>` format
 - `.last_session`: Tracks most recent session per interface (plain text `interface=sessionID`)
 
-**Identity Linking (`config/identities.toml`):**
+**Identity Linking (`.data/contacts.toml`):**
+
+Merged file with two sections:
 ```toml
+# ============================================
+# IDENTITIES (user-edited)
+# Link multiple contacts to a single identity
+# ============================================
 [[identity]]
 id = "alice"
 contacts = ["cli:alice", "telegram:123456789"]
+
+# ============================================
+# CONTACTS (auto-generated - do not edit)
+# All contacts that have sent messages
+# ============================================
+[[contact]]
+interface = "telegram"
+id = "123456789"
+display_name = "Alice"
+first_seen = 2026-06-17T15:04:05Z
 ```
 
 Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
 
+**File Creation:**
+- Created by `init` command with default user identity (`[[identity]]` with system username)
+- Auto-updated when first contact sends message (adds `[[contact]]` entry)
+- `saveIdentitiesFile()` preserves both sections with header comments
+
 **Migration System:**
 - **Startup migration**: `MigrateOnStartup()` called in `run.go` after `.data` directory creation
-  - Bulk processes all identities from identities.toml
+  - Bulk processes all identities from contacts.toml
   - Moves sessions from unlinked folders (e.g., `telegram-12345678`) to identity folders (e.g., `alice`)
   - Merges `.last_session` files by parsing session ID timestamps
 - **Lazy migration**: `MigrateContact()` called from `Resolve()` on each message
@@ -328,9 +356,9 @@ Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
 - Both migrations are idempotent and safe to run multiple times
 
 **Session Resolution:**
-- `Resolve(store, agentFolder, iface, contactID, displayName)` - Auto resolution (used by ConversationService)
+- `Resolve(store, agentFolder, iface, contactID, displayName)` - Auto resolution (used by Orchestrator)
 - `ResolveExplicit(store, agentFolder, userID, sessionID, iface)` - Explicit resolution (used by CLI for --user/--session)
-- Contact logging in `.data/contacts` file (append-only with deduplication)
+- Contact auto-logged to `.data/contacts.toml` (deduplication by interface+id)
 - `memory.max_messages` in agent.toml controls history limit (0 = unlimited)
 
 **Auto-Title Generation:**
@@ -350,9 +378,9 @@ Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
 
 **Normal Flow (Telegram, CLI auto-resolution):**
 ```
-Interface → MessageHandler.HandleMessage(iface, contactID, displayName, content)
+Interface → internal.MessageHandler.HandleMessage(iface, contactID, displayName, content)
               ↓
-         ConversationService
+         internal.Orchestrator
               ↓
          session.Resolve() → Load config/tools/prompt → session.Load()
               ↓
@@ -365,9 +393,9 @@ Interface → MessageHandler.HandleMessage(iface, contactID, displayName, conten
 
 **Explicit Flow (CLI --user/--session flags):**
 ```
-CLI → session.ResolveExplicit() → MessageHandler.HandleExplicitMessage(userID, sessionID, iface, content)
+CLI → session.ResolveExplicit() → internal.MessageHandler.HandleExplicitMessage(userID, sessionID, iface, content)
                                       ↓
-                                 ConversationService
+                                 internal.Orchestrator
                                       ↓
                                  (skip resolution) → Load config/tools/prompt → session.Load()
                                       ↓
@@ -392,7 +420,7 @@ Uses `github.com/DeprecatedLuar/gohelp-luar` for formatted CLI help:
 Config, tools, and prompt files are loaded on **every request**, not at daemon startup:
 - Edit `agent.toml`, any tool file, or `prompt` while daemon is running → changes take effect immediately
 - Malformed configs return errors to the caller but daemon stays running
-- ConversationService loads fresh config/tools/prompt on each HandleMessage() call (no caching)
+- Orchestrator loads fresh config/tools/prompt on each HandleMessage() call (no caching)
 - Startup validation still happens for fail-fast on boot errors
 
 This enables zero-downtime config changes and experimentation.
@@ -417,7 +445,10 @@ Two complementary debugging mechanisms:
 ### Key Design Decisions
 
 - **Hexagonal architecture** - Clear separation: I/O adapters → orchestration → domain logic
-- **Ports & Adapters** - MessageHandler (input port), SessionStore (output port), Dispatcher (future output port)
+- **Ports at package root** - All input ports in `internal/ports.go` (MessageHandler, Dispatcher, Interface)
+- **Orchestrator at top-level** - `internal/orchestration.go` for shorter imports and architectural clarity
+- **SessionStore in domain** - Kept in `session/` package to avoid circular imports (domain types stay with interface)
+- **Merged identities & contacts** - Single `.data/contacts.toml` file with both user-edited identities and auto-generated contacts
 - **No CLI framework** - Simple stdlib arg parsing (KISS principle), gohelp-luar for documentation only
 - **Modular providers** - Each provider in separate file (openai.go, openrouter.go) for single responsibility
 - **Daemon architecture** - Single process, config-driven interfaces (agent.toml: `interfaces = ["cli", "telegram"]`)
@@ -443,13 +474,15 @@ Each provider is self-contained in `internal/providers/llm/{name}.go`:
 
 ### Adding New Interfaces
 
-Each interface implements the `Interface` contract in `internal/interfaces/interface.go`:
+Each interface implements the `Interface` contract defined in `internal/ports.go`:
 1. Create new file in `internal/interfaces/` (e.g., `discord.go`)
-2. Implement `Start(ctx context.Context) error`
-3. Receive input, call `handler.HandleMessage(iface, contactID, displayName, content)`
-4. Keep interface as thin I/O adapter - no session logic, no resolution
-5. Add interface name to factory in `internal/commands/run.go`
-6. Update agent.toml template and identities.toml contact format if needed
+2. Import `internal` package for port interfaces
+3. Implement `internal.Interface` contract: `Start(ctx context.Context) error`
+4. Accept `internal.MessageHandler` in constructor
+5. Receive input, call `handler.HandleMessage(iface, contactID, displayName, content)`
+6. Keep interface as thin I/O adapter - no session logic, no resolution
+7. Add interface name to factory in `internal/commands/run.go`
+8. Update agent.toml template and contacts.toml contact format if needed
 
 **Interface responsibility**: Pure I/O transport. Extract platform-specific user ID, call MessageHandler, send response back. Nothing more.
 

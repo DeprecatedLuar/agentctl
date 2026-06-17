@@ -43,10 +43,13 @@ type CLIInterface struct {
 
 // CLIRequest represents a request from the CLI client
 type CLIRequest struct {
-	User    string `json:"user"`
-	Session string `json:"session"`
-	Message string `json:"message"`
-	Debug   bool   `json:"debug"`
+	User          string   `json:"user"`
+	Session       string   `json:"session"`
+	Message       string   `json:"message"`
+	Debug         bool     `json:"debug"`
+	Channel       []string `json:"channel,omitempty"`
+	ChannelInject []string `json:"channel_inject,omitempty"`
+	Tools         []string `json:"tools,omitempty"`
 }
 
 // CLIResponse represents a response to the CLI client
@@ -130,6 +133,14 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 		var req CLIRequest
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
 			encoder.Encode(CLIResponse{Error: fmt.Sprintf("invalid request: %v", err)})
+			continue
+		}
+
+		// Check if we need to use HandleMessageWithOptions
+		hasDeliveryOptions := len(req.Channel) > 0 || len(req.ChannelInject) > 0 || len(req.Tools) > 0
+
+		if hasDeliveryOptions {
+			c.handleWithOptions(encoder, req)
 			continue
 		}
 
@@ -228,4 +239,79 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 		}
 		encoder.Encode(resp)
 	}
+}
+
+// handleWithOptions handles requests with delivery options (--channel, --channel-inject, --tools)
+func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) {
+	// Resolve user ID for channel resolution (need identity ID, not raw username)
+	var userID string
+	if req.User != "" {
+		userID = req.User
+	} else {
+		// Resolve username to identity ID
+		resolvedUserID, err := c.store.ResolveUser(interfaceNameCLI, c.username)
+		if err != nil {
+			encoder.Encode(CLIResponse{Error: fmt.Sprintf("failed to resolve user: %v", err)})
+			return
+		}
+		userID = resolvedUserID
+	}
+
+	// Build MessageOptions
+	opts := internal.MessageOptions{
+		Interface:      interfaceNameCLI,
+		ContactID:      c.username,
+		DisplayName:    c.username,
+		Content:        req.Message,
+		UserID:         req.User,    // Empty unless --user specified
+		SessionID:      req.Session, // Empty unless --session specified
+		Channels:       req.Channel,
+		ChannelsInject: req.ChannelInject,
+		Tools:          req.Tools,
+	}
+
+	// Log message received
+	if c.logger != nil {
+		msg := fmt.Sprintf("message received %s:%s (with options)", userID, interfaceNameCLI)
+		if c.verbose {
+			c.logger.Info(msg, "content", req.Message)
+		} else {
+			c.logger.Info(msg)
+		}
+	}
+
+	// Handle message with options
+	response, runErr := c.handler.HandleMessageWithOptions(opts)
+
+	if runErr != nil {
+		if c.logger != nil {
+			c.logger.Error("agent error", "user", userID, "interface", interfaceNameCLI, "error", runErr)
+		}
+		encoder.Encode(CLIResponse{Error: runErr.Error()})
+	} else {
+		// Log response sent
+		if c.logger != nil {
+			msg := fmt.Sprintf("response sent %s:%s (with options)", userID, interfaceNameCLI)
+			if c.verbose {
+				c.logger.Info(msg, "content", response)
+			} else {
+				c.logger.Info(msg)
+			}
+		}
+
+		// Build response
+		resp := CLIResponse{Response: response}
+		encoder.Encode(resp)
+	}
+}
+
+// InterfaceName returns the interface identifier for Sender interface
+func (c *CLIInterface) InterfaceName() string {
+	return interfaceNameCLI
+}
+
+// Send delivers a message to the specified CLI user (Sender interface)
+// Not yet implemented - requires interactive mode support
+func (c *CLIInterface) Send(platformID, content string) error {
+	return fmt.Errorf("CLI outbound delivery requires interactive mode, not yet implemented")
 }

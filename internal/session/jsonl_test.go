@@ -373,7 +373,7 @@ func TestJSONLStore_EnsureContactDelegation(t *testing.T) {
 	}
 
 	// Verify contacts file was created
-	contactsPath := filepath.Join(tmpDir, contactsFile)
+	contactsPath := filepath.Join(tmpDir, identitiesFile)
 	if _, err := os.Stat(contactsPath); os.IsNotExist(err) {
 		t.Error("Contacts file was not created")
 	}

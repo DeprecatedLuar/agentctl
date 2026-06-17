@@ -1,0 +1,12 @@
+# ============================================
+# IDENTITIES (user-edited)
+# Link multiple contacts to a single identity
+# ============================================
+[[identity]]
+id = "{{username}}"
+contacts = ["cli:{{username}}"]
+
+# ============================================
+# CONTACTS (auto-generated - do not edit)
+# All contacts that have sent messages
+# ============================================

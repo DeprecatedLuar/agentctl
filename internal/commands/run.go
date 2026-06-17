@@ -146,6 +146,12 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("session migration failed: %w", err)
 	}
 
+	// Warn about duplicate contacts in identities (first match wins in LookupPlatformID)
+	if err := session.WarnDuplicateContacts(absPath, lg); err != nil {
+		// Non-fatal - log warning and continue
+		lg.Warn("failed to check for duplicate contacts", "error", err)
+	}
+
 	// Create audio transcriber if configured
 	var transcriber audio.Transcriber
 	if agentCfg.Audio != nil {
@@ -169,6 +175,9 @@ func HandleRun(args []string) error {
 		Debug:        debug,
 	}
 
+	// Create outbound dispatcher
+	dispatcher := interfaces.NewOutboundDispatcher()
+
 	// Default interfaces to ["cli"] if not specified
 	interfacesList := agentCfg.Interfaces
 	if len(interfacesList) == 0 {
@@ -191,30 +200,38 @@ func HandleRun(args []string) error {
 		cancel()
 	}()
 
-	// Start interfaces
-	errChan := make(chan error, len(interfacesList))
+	// Create and register interfaces
+	var interfaceInstances []internal.Interface
 	for _, iface := range interfacesList {
 		switch iface {
 		case interfaceCLI:
 			cli := interfaces.NewCLI(absPath, orch, store, lg, verbose)
-			go func() {
-				if err := cli.Start(ctx); err != nil {
-					errChan <- fmt.Errorf("%s interface error: %w", interfaceCLI, err)
-				}
-			}()
+			dispatcher.Register(cli)
+			interfaceInstances = append(interfaceInstances, cli)
 		case interfaceTelegram:
 			telegram, err := interfaces.NewTelegram(absPath, transcriber, orch, lg, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telegram interface: %w", err)
 			}
-			go func() {
-				if err := telegram.Start(ctx); err != nil {
-					errChan <- fmt.Errorf("%s interface error: %w", interfaceTelegram, err)
-				}
-			}()
+			dispatcher.Register(telegram)
+			interfaceInstances = append(interfaceInstances, telegram)
 		default:
 			return fmt.Errorf("unknown interface: %s", iface)
 		}
+	}
+
+	// Assign dispatcher to orchestrator
+	orch.Dispatcher = dispatcher
+
+	// Start interfaces
+	errChan := make(chan error, len(interfaceInstances))
+	for i, iface := range interfaceInstances {
+		ifaceName := interfacesList[i]
+		go func(ifaceName string, iface internal.Interface) {
+			if err := iface.Start(ctx); err != nil {
+				errChan <- fmt.Errorf("%s interface error: %w", ifaceName, err)
+			}
+		}(ifaceName, iface)
 	}
 
 	// Wait for shutdown or error

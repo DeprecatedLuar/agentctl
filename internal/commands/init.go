@@ -13,13 +13,14 @@ import (
 
 const (
 	// Directory names
-	configDir  = "config"
-	promptsDir = "prompts"
-	toolsDir   = "tools"
+	configDir     = "config"
+	promptsDir    = "prompts"
+	toolsDir      = "tools"
+	initDataDir   = ".data"
 
 	// File names
 	initAgentConfig   = "agent.toml"
-	identitiesFile    = "identities.toml"
+	contactsFile      = "contacts.toml"
 	defaultPromptFile = "default"
 	initEnvFile       = ".env"
 	initGitignoreFile = ".gitignore"
@@ -42,12 +43,6 @@ func HandleInit(args []string) error {
 		return fmt.Errorf("invalid path: %w", err)
 	}
 
-	// Check if already initialized (check for config/agent.toml)
-	agentTomlPath := filepath.Join(absPath, configDir, initAgentConfig)
-	if _, err := os.Stat(agentTomlPath); err == nil {
-		return fmt.Errorf("folder already initialized (%s exists)", filepath.Join(configDir, initAgentConfig))
-	}
-
 	// Get current username for template substitution
 	currentUser, err := user.Current()
 	if err != nil {
@@ -61,7 +56,7 @@ func HandleInit(args []string) error {
 	}
 
 	// Create subdirectories
-	dirs := []string{configDir, promptsDir, toolsDir}
+	dirs := []string{configDir, promptsDir, toolsDir, initDataDir}
 	for _, dir := range dirs {
 		dirPath := filepath.Join(absPath, dir)
 		if err := os.MkdirAll(dirPath, dirPermissions); err != nil {
@@ -71,19 +66,28 @@ func HandleInit(args []string) error {
 
 	// Write template files
 	files := map[string]string{
-		filepath.Join(configDir, initAgentConfig):    templates.AgentToml,
-		filepath.Join(configDir, identitiesFile):     substituteUsername(templates.IdentitiesToml, username),
-		filepath.Join(promptsDir, defaultPromptFile): templates.Prompt,
+		filepath.Join(configDir, initAgentConfig):       templates.AgentToml,
+		filepath.Join(initDataDir, contactsFile):        substituteUsername(templates.ContactsToml, username),
+		filepath.Join(promptsDir, defaultPromptFile):    templates.Prompt,
 		filepath.Join(toolsDir, toolExampleFile):     templates.ToolExample,
 		initEnvFile:                                   templates.EnvTemplate,
 		initGitignoreFile:                             templates.Gitignore,
 	}
 
+	var createdFiles, skippedFiles []string
 	for name, content := range files {
 		filePath := filepath.Join(absPath, name)
+
+		// Skip if file already exists
+		if _, err := os.Stat(filePath); err == nil {
+			skippedFiles = append(skippedFiles, name)
+			continue
+		}
+
 		if err := os.WriteFile(filePath, []byte(content), filePermissions); err != nil {
 			return fmt.Errorf("failed to write %s: %w", name, err)
 		}
+		createdFiles = append(createdFiles, name)
 	}
 
 	// Register agent in registry
@@ -92,7 +96,19 @@ func HandleInit(args []string) error {
 	}
 
 	agentName := filepath.Base(absPath)
-	fmt.Printf("Initialized agent '%s' at %s\n", agentName, absPath)
+
+	// Report results
+	if len(createdFiles) > 0 {
+		fmt.Printf("Initialized agent '%s' at %s\n", agentName, absPath)
+		fmt.Printf("Created %d file(s)\n", len(createdFiles))
+	}
+	if len(skippedFiles) > 0 {
+		fmt.Printf("Skipped %d existing file(s)\n", len(skippedFiles))
+	}
+	if len(createdFiles) == 0 && len(skippedFiles) > 0 {
+		fmt.Printf("Agent '%s' already initialized\n", agentName)
+	}
+
 	return nil
 }
 

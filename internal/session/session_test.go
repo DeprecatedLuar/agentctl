@@ -39,9 +39,9 @@ func TestNewSessionID(t *testing.T) {
 func TestResolveUser(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create config directory and identities.toml
-	configDir := filepath.Join(tmpDir, "config")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	// Create .data directory and contacts.toml with identities
+	dataDir := filepath.Join(tmpDir, ".data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,7 +53,7 @@ contacts = ["cli:alice", "telegram:12345"]
 id = "bob"
 contacts = ["cli:bob"]
 `
-	identitiesPath := filepath.Join(configDir, "identities.toml")
+	identitiesPath := filepath.Join(dataDir, "contacts.toml")
 	if err := os.WriteFile(identitiesPath, []byte(identitiesContent), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestEnsureContact(t *testing.T) {
 	}
 
 	// Verify file was created
-	contactsPath := filepath.Join(tmpDir, "contacts.toml")
+	contactsPath := filepath.Join(tmpDir, identitiesFile)
 	if _, err := os.Stat(contactsPath); os.IsNotExist(err) {
 		t.Fatal("contacts.toml was not created")
 	}
@@ -121,18 +121,18 @@ func TestEnsureContact(t *testing.T) {
 	}
 
 	// Verify only one entry exists
-	contacts, err := loadContacts(contactsPath)
+	cfg, err := loadIdentitiesFile(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(contacts) != 1 {
-		t.Errorf("len(contacts) = %d, want 1", len(contacts))
+	if len(cfg.Contacts) != 1 {
+		t.Errorf("len(contacts) = %d, want 1", len(cfg.Contacts))
 	}
 
 	// Verify first call's display name is preserved (not updated)
-	if contacts[0].DisplayName != "Alice" {
-		t.Errorf("contact.DisplayName = %q, want %q", contacts[0].DisplayName, "Alice")
+	if cfg.Contacts[0].DisplayName != "Alice" {
+		t.Errorf("contact.DisplayName = %q, want %q", cfg.Contacts[0].DisplayName, "Alice")
 	}
 
 	// Third call with different interface - should add
@@ -141,13 +141,13 @@ func TestEnsureContact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	contacts, err = loadContacts(contactsPath)
+	cfg, err = loadIdentitiesFile(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(contacts) != 2 {
-		t.Errorf("len(contacts) after different interface = %d, want 2", len(contacts))
+	if len(cfg.Contacts) != 2 {
+		t.Errorf("len(contacts) after different interface = %d, want 2", len(cfg.Contacts))
 	}
 }
 
@@ -247,9 +247,9 @@ func TestLoadSave_NewPath(t *testing.T) {
 func TestMigrateContact(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create config directory and identities.toml
-	configDir := filepath.Join(tmpDir, "config")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	// Create .data directory and contacts.toml
+	dataDir := filepath.Join(tmpDir, ".data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -257,7 +257,7 @@ func TestMigrateContact(t *testing.T) {
 id = "alice"
 contacts = ["telegram:12345"]
 `
-	identitiesPath := filepath.Join(configDir, "identities.toml")
+	identitiesPath := filepath.Join(dataDir, "contacts.toml")
 	if err := os.WriteFile(identitiesPath, []byte(identitiesContent), 0644); err != nil {
 		t.Fatal(err)
 	}

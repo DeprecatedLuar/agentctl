@@ -1,3 +1,0 @@
-[[identity]]
-id = "{{username}}"
-contacts = ["cli:{{username}}"]

@@ -34,6 +34,7 @@ type TelegramInterface struct {
 	handler     internal.MessageHandler
 	logger      *slog.Logger
 	verbose     bool
+	bot         *tgbotapi.BotAPI // Initialized in Start, used by Sender interface
 }
 
 // NewTelegram creates a new Telegram interface
@@ -64,6 +65,9 @@ func (t *TelegramInterface) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create telegram bot: %w", err)
 	}
+
+	// Store bot for Sender interface
+	t.bot = bot
 
 	fmt.Printf("Telegram interface authorized as @%s\n", bot.Self.UserName)
 
@@ -225,4 +229,25 @@ func (t *TelegramInterface) transcribeVoiceMessage(bot *tgbotapi.BotAPI, voice *
 	}
 
 	return text, nil
+}
+
+// InterfaceName returns the interface identifier for Sender interface
+func (t *TelegramInterface) InterfaceName() string {
+	return interfaceNameTelegram
+}
+
+// Send delivers a message to the specified Telegram chat ID (Sender interface)
+func (t *TelegramInterface) Send(platformID, content string) error {
+	if t.bot == nil {
+		return fmt.Errorf("telegram bot not initialized")
+	}
+
+	chatID, err := strconv.ParseInt(platformID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid telegram chat ID %q: %w", platformID, err)
+	}
+
+	msg := tgbotapi.NewMessage(chatID, content)
+	_, err = t.bot.Send(msg)
+	return err
 }
