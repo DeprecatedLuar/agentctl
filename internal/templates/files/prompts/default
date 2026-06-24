@@ -1,0 +1,14 @@
+[>system]
+Available system variables:
+- {{$agent}}, {{$user}}, {{$username}}, {{$session}}
+- {{$interface}}, {{$timestamp}}, {{$date}}
+- {{$model}}, {{$provider}}
+
+[>user]
+
+
+[>assistant]
+
+
+[>>user]
+{{$input}}
