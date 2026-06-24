@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/DeprecatedLuar/agentctl/internal/interfaces/cli"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
@@ -172,7 +173,9 @@ func HandleChat(args []string) error {
 		return fmt.Errorf("agent error: %s", resp.Error)
 	}
 
-	fmt.Println(resp.Response)
+	// Print response with ANSI formatting if stdout is a terminal
+	// Auto-detects TTY: formats for interactive use, plain text for pipes/redirects
+	fmt.Println(cli.FormatForCLI(resp.Response))
 
 	// Print debug info if requested
 	if debug && resp.SessionFile != "" {

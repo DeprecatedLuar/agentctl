@@ -117,7 +117,8 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	// Handle /start command
 	if text == "/start" {
 		welcomeMsg := "Agent ready. Send a message to begin."
-		msg := tgbotapi.NewMessage(chatID, welcomeMsg)
+		msg := tgbotapi.NewMessage(chatID, formatForTelegram(welcomeMsg))
+		msg.ParseMode = "HTML"
 		bot.Send(msg)
 		if t.logger != nil {
 			t.logger.Info("start command", "contact", contactID)
@@ -134,7 +135,8 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 				t.logger.Error("transcription error", "contact", contactID, "error", transcribeErr)
 			}
 			errorMsg := fmt.Sprintf("Failed to transcribe voice message: %v", transcribeErr)
-			msg := tgbotapi.NewMessage(chatID, errorMsg)
+			msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
+			msg.ParseMode = "HTML"
 			bot.Send(msg)
 			return
 		}
@@ -150,10 +152,12 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		response, err := t.handleCommand(cmd, contactID)
 		if err != nil {
 			errorMsg := fmt.Sprintf("Error: %v", err)
-			msg := tgbotapi.NewMessage(chatID, errorMsg)
+			msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
+			msg.ParseMode = "HTML"
 			bot.Send(msg)
 		} else {
-			msg := tgbotapi.NewMessage(chatID, response)
+			msg := tgbotapi.NewMessage(chatID, formatForTelegram(response))
+			msg.ParseMode = "HTML"
 			bot.Send(msg)
 		}
 		return
@@ -185,7 +189,8 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 			t.logger.Error("agent error", "contact", contactID, "interface", interfaceNameTelegram, "error", runErr)
 		}
 		errorMsg := fmt.Sprintf("Error: %v", runErr)
-		msg := tgbotapi.NewMessage(chatID, errorMsg)
+		msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
+		msg.ParseMode = "HTML"
 		bot.Send(msg)
 		return
 	}
@@ -200,7 +205,8 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		}
 	}
 
-	msg := tgbotapi.NewMessage(chatID, response)
+	msg := tgbotapi.NewMessage(chatID, formatForTelegram(response))
+	msg.ParseMode = "HTML"
 	bot.Send(msg)
 }
 
@@ -275,7 +281,8 @@ func (t *TelegramInterface) Send(platformID, content string) error {
 		return fmt.Errorf("invalid telegram chat ID %q: %w", platformID, err)
 	}
 
-	msg := tgbotapi.NewMessage(chatID, content)
+	msg := tgbotapi.NewMessage(chatID, formatForTelegram(content))
+	msg.ParseMode = "HTML"
 	_, err = t.bot.Send(msg)
 	return err
 }
