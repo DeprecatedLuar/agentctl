@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 )
 
 func TestDirectives(t *testing.T) {
@@ -37,8 +39,12 @@ Var: {{myvar}}
 	}
 	
 	// Parse prompt
-	vars := map[string]string{"myvar": "REPLACED"}
-	prompt, issues := Parse(tmpDir, vars)
+	ctx := resolution.Context{
+		AgentPath: tmpDir,
+		AgentName: "test",
+		UserVars:  map[string]string{"myvar": "REPLACED"},
+	}
+	prompt, issues := Parse(tmpDir, ctx)
 	
 	// Check for errors
 	for _, issue := range issues {
@@ -90,7 +96,8 @@ func TestDirectiveErrors(t *testing.T) {
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
 		os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644)
 
-		_, issues := Parse(tmpDir, nil)
+		ctx := resolution.Context{AgentPath: tmpDir}
+	_, issues := Parse(tmpDir, ctx)
 
 		hasError := false
 		for _, issue := range issues {
@@ -114,7 +121,8 @@ Result: {{exec:./fail.sh}}`
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
 		os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644)
 
-		prompt, _ := Parse(tmpDir, nil)
+		ctx := resolution.Context{AgentPath: tmpDir}
+	prompt, _ := Parse(tmpDir, ctx)
 
 		if prompt == nil || len(prompt.Static) == 0 {
 			t.Fatal("prompt should parse even with failing script")

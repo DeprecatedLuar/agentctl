@@ -148,20 +148,39 @@ func printHelp(args []string) {
 			gohelp.Item("description", "Parameter description"),
 			gohelp.Item("type", "Parameter type (default: \"string\")"),
 			gohelp.Item("required", "Whether required (default: false)"),
+			gohelp.Item("enabled", "Show to AI (default: true, false = hidden)"),
+			gohelp.Item("return", "Override value with directive support (hides from AI unless contains {{$completion}})"),
+		).
+		Section("Special Variables in Return Fields",
+			gohelp.Item("{{$completion}}", "AI's value for this parameter (shows param to AI)", "return = \"--flag {{$completion}}\""),
+			gohelp.Item("{{file:path}}", "Load file content", "return = \"{{file:.env.API_KEY}}\""),
+			gohelp.Item("{{exec:cmd}}", "Execute command", "return = \"{{exec:date -Iseconds}}\""),
 		).
 		Text("Tools are executed via 'sh -c' with {{var}} substitution from AI tool calls. Files named example.toml are ignored during auto-discovery.")
 
 	prompt := gohelp.NewPage("prompt", "prompt file format").
 		Usage("prompt file structure").
 		Section("Section Types",
-			gohelp.Item("[>role]", "Static section (variables substituted at parse time)"),
-			gohelp.Item("[>>role]", "Input section with {{input}} placeholder (only one allowed)"),
+			gohelp.Item("[>role]", "Static section (directives and variables processed at parse time)"),
+			gohelp.Item("[>>role]", "Input section with {{$input}} placeholder (only one allowed)"),
 		).
-		Section("Special Syntax",
-			gohelp.Item("<path", "Load file content (relative to agent folder, supports ~/ and absolute paths)"),
-			gohelp.Item("{{var}}", "Variable placeholder (substituted in static sections, preserved in input section)"),
+		Section("Directives (processed at parse time)",
+			gohelp.Item("{{file:path}}", "Load file content (supports ./, ~/, absolute paths)"),
+			gohelp.Item("{{exec:cmd}}", "Execute command and inject stdout"),
 		).
-		Text("The [>>role] section is required for the agent to receive messages. Static sections build conversation context.")
+		Section("System Variables",
+			gohelp.Item("{{$input}}", "User's message (input section only)"),
+			gohelp.Item("{{$agent}}", "Agent name"),
+			gohelp.Item("{{$user}}", "User identity ID"),
+			gohelp.Item("{{$username}}", "Display name"),
+			gohelp.Item("{{$session}}", "Session ID"),
+			gohelp.Item("{{$interface}}", "Interface name (cli, telegram)"),
+			gohelp.Item("{{$timestamp}}", "ISO8601 timestamp"),
+			gohelp.Item("{{$date}}", "ISO date (YYYY-MM-DD)"),
+			gohelp.Item("{{$model}}", "Model name"),
+			gohelp.Item("{{$provider}}", "Provider name"),
+		).
+		Text("The [>>role] section is required for the agent to receive messages. Static sections build conversation context. Directives are recursive (10-level depth limit).")
 
 	interfaces := gohelp.NewPage("interfaces", "interface configuration").
 		Usage("interfaces = [\"cli\", \"telegram\"]").

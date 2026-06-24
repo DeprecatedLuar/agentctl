@@ -16,6 +16,7 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
@@ -97,8 +98,8 @@ func HandleRun(args []string) error {
 		allIssues = append(allIssues, toolIssues...)
 	}
 
-	// Load prompt for validation
-	_, promptIssues := config.Parse(absPath, map[string]string{})
+	// Load prompt for validation (minimal context - only syntax check)
+	_, promptIssues := config.Parse(absPath, resolution.NewValidationContext(absPath))
 	allIssues = append(allIssues, promptIssues...)
 
 	// Print validation results

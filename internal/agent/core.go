@@ -18,7 +18,7 @@ const (
 	roleAssistant = "assistant"
 
 	// Input placeholder
-	inputPlaceholder = "{{input}}"
+	inputPlaceholder = "{{$input}}"
 
 	// Format strings
 	toolResultFormat = "Tool %s result:\n%s"

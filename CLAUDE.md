@@ -33,6 +33,8 @@ go test ./internal/config -v -run TestParse_BasicSections
 
 **IMPORTANT:** Always use free models for testing to avoid unnecessary API costs.
 
+**CRITICAL:** Always use the existing `_test-agent` folder for testing. DO NOT create new test agents (e.g., `test-agent`, `my-test-agent`, etc.). The `_test-agent` folder is pre-configured with free models and should be reused for all testing purposes.
+
 ```bash
 # Use OpenRouter's free model router for testing
 provider = "openrouter"
@@ -47,7 +49,7 @@ model = "openrouter/free"
 # - google/gemma-4-26b-a4b-it:free
 ```
 
-The `_test-agent` folder uses `openrouter/free` - update this if testing requires specific model features.
+The `_test-agent` folder uses `openrouter/free` - modify its config if testing requires specific model features, then revert when done.
 
 ## Architecture
 
@@ -91,7 +93,9 @@ The system follows hexagonal architecture with clear separation between I/O adap
 **1. internal/config** - All file loading (agent.toml, tools/*.toml, prompt file)
 - `agent.go`: AgentConfig with provider, model, tools, interfaces, memory settings
 - `tool.go`: ToolConfig with dynamic parameter sections (all TOML sections except command/description are parameters)
-- `prompt.go`: Custom format with `[>role]` static sections and `[>>role]` input section
+- `prompt.go`: Custom format parser with `[>role]` static sections and `[>>role]` input section
+  - Uses resolution.Process() for template resolution (directives + variables)
+  - Validates syntax on startup via resolution.ValidateSyntax()
 
 **2. internal/providers/llm** - AI provider abstraction (modular, one file per provider)
 - `provider.go`: Interface contract + routing factory
@@ -192,9 +196,17 @@ The system follows hexagonal architecture with clear separation between I/O adap
   - Supports comma-separated lists for channel and tool flags
 - `inject.go`: Manual session injection without running agent (--role, --session, --agent)
 
-**10. internal/directives** - Directive processor for {{file:}} and {{exec:}} syntax
-- `process.go`: ProcessDirectives() with recursive expansion (10-level depth limit)
-- Used by both prompt parser and tool parameter return values
+**10. internal/resolution** - Template resolution with directives and variables
+- `resolution.go`: Process() main pipeline (directives → variables), ValidateSyntax() for startup checks
+- `directives.go`: processDirectives() with recursive expansion (10-level depth limit), binary file detection
+- `variables.go`: substituteVariables() for {{var}} and {{$var}} placeholders
+- `context.go`: Context struct with runtime info (agent path, user, session, model, timestamp)
+- Two-phase processing:
+  1. Directives ({{file:path}}, {{exec:command}}) - loads/executes content
+  2. Variables ({{var}}, {{$var}}) - substitutes runtime values
+- Used by prompt parser and tool parameter return values
+- System variables: {{$agent}}, {{$user}}, {{$username}}, {{$session}}, {{$interface}}, {{$timestamp}}, {{$date}}, {{$model}}, {{$provider}}
+- User variables: {{var}} (future use, currently empty)
 - Supports relative paths (agent folder), ~/ expansion, absolute paths
 
 **11. internal/debug** - Debug utilities for inspecting AI requests
@@ -250,23 +262,32 @@ agent-folder/
 - `[>>role]` - Input section (directives processed, variables preserved for runtime, {{input}} replaced per message)
 - `{{file:path}}` - Load file content (supports relative, ~/, absolute paths)
 - `{{exec:command}}` - Execute shell command and inject stdout (supports scripts, PATH commands, pipes)
-- `{{var}}` - Variable placeholders (no colon = variable, not directive)
+- `{{var}}` - User variable placeholders (no colon = variable, not directive)
+- `{{$var}}` - System variable placeholders ($ prefix for built-in variables)
 - Directives are recursive (10-level depth limit): files loaded via {{file:}} can contain {{exec:}} directives
 
-**Directive Processing:**
-- Happens at parse time (once per request due to hot-reload)
-- Detection rule: `{{...}}` with `:` = directive, without `:` = variable
-- `{{exec:}}` runs commands via `sh -c` from agent folder (handles ./scripts, PATH commands, pipes)
-- Unknown directives (e.g., `{{unknown:path}}`) cause parse errors (fail fast)
-- Directives can appear inline: `Current time: {{exec:date}} - processing...`
+**Resolution Pipeline (Two-Phase):**
+1. **Directives** - Happens first, loads/executes external content
+   - `{{file:path}}` - loads file content (with binary file detection)
+   - `{{exec:command}}` - runs shell command via `sh -c` from agent folder
+   - Recursive expansion up to 10 levels deep
+   - Unknown directives (e.g., `{{unknown:path}}`) cause parse errors (fail fast)
+   - Directives can appear inline: `Current time: {{exec:date}} - processing...`
+2. **Variables** - Happens after directives, substitutes runtime values
+   - Detection rule: `{{...}}` with `:` = directive, without `:` = variable
+   - System variables take precedence over user variables
+   - Built-in system variables ($ prefix): `{{$agent}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$interface}}`, `{{$timestamp}}`, `{{$date}}`, `{{$model}}`, `{{$provider}}`
+   - User variables (no prefix): `{{var}}` (future use, currently empty)
 
 **Example:**
 ```
 [>system]
 Context: {{file:./docs/context.md}}
-Timestamp: {{exec:date -Iseconds}}
-Agent: {{exec:agentctl getagent}}
-User: {{username}}
+Current time: {{$timestamp}}
+Agent: {{$agent}}
+User: {{$username}} (ID: {{$user}})
+Interface: {{$interface}}
+Model: {{$model}} ({{$provider}})
 
 [>>user]
 {{input}}
@@ -578,6 +599,8 @@ Two complementary debugging mechanisms:
 - **Per-session mutexes** - Prevents race conditions in concurrent file operations without global locking
 - **Channel delivery** - ResolveChannel receives identity ID (not raw username) for consistent semantics
 - **Tool whitelisting** - Runtime --tools flag filters available tools without config changes
+- **Two-phase template resolution** - Directives first ({{file:}}, {{exec:}}), then variables ({{var}}, {{$var}}) for clean separation
+- **System variables** - Built-in runtime context ({{$agent}}, {{$user}}, {{$timestamp}}, etc.) with $ prefix to distinguish from user vars
 
 ### Adding New Providers
 

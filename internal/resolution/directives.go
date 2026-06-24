@@ -1,4 +1,4 @@
-package directives
+package resolution
 
 import (
 	"fmt"
@@ -26,16 +26,16 @@ const (
 	nullByte         = 0
 )
 
-// ValidateSyntax validates directive syntax without executing anything.
+// validateDirectiveSyntax validates directive syntax without executing anything.
 // Only checks for syntax errors (unknown directive types, empty paths, invalid escapes).
-// Does NOT load files or execute scripts - use ProcessDirectives for that.
+// Does NOT load files or execute scripts.
 //
 // Returns error only for syntax issues, not runtime issues.
-func ValidateSyntax(content string) error {
+func validateDirectiveSyntax(content string) error {
 	return validateSyntaxWithDepth(content, 0)
 }
 
-// ProcessDirectives processes {{file:path}} and {{exec:path}} directives recursively.
+// processDirectives processes {{file:path}} and {{exec:path}} directives recursively.
 // Supports backslash escaping: \{{...}} becomes literal {{...}}.
 //
 // Directive types:
@@ -43,7 +43,7 @@ func ValidateSyntax(content string) error {
 //   - {{exec:path}}: Executes script, returns stdout (or "exit N: stderr" on failure)
 //
 // Returns processed content and error if directive processing fails.
-func ProcessDirectives(content, agentPath string) (string, error) {
+func processDirectives(content, agentPath string) (string, error) {
 	return processDirectivesWithDepth(content, agentPath, 0)
 }
 
@@ -120,7 +120,7 @@ func validateSyntaxWithDepth(content string, depth int) error {
 
 	// If we found directives, we would need to validate nested content too
 	// But since we're not actually processing, we can't get the nested content
-	// Nested validation happens during ProcessDirectives
+	// Nested validation happens during processDirectives
 	// This is a trade-off: syntax-only validation can't catch nested syntax errors
 	// until runtime, but that's acceptable since the first level is validated
 	_ = hasDirectives

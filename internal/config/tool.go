@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/DeprecatedLuar/agentctl/internal/directives"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 )
 
 const (
@@ -206,7 +206,7 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 
 			// Validate directive syntax in return field (syntax only, no execution)
 			if ret != "" {
-				if err := directives.ValidateSyntax(ret); err != nil {
+				if err := resolution.ValidateSyntax(ret); err != nil {
 					issues = append(issues, ValidationIssue{
 						Type:    IssueError,
 						Message: fmt.Sprintf("tools/%s: parameter '%s' return field: %v", relPath, key, err),
@@ -222,15 +222,19 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 }
 
 // ConvertToolParameters converts tool parameters to OpenAI-compatible schema format.
-// Filters out disabled parameters and parameters with return overrides (both are hidden from AI).
+// Filters out disabled parameters and parameters with return overrides that don't use {{$completion}}.
+// Parameters with {{$completion}} in return field are shown to AI (AI provides value, we format it).
 // Returns properties map and required parameter names slice.
 func ConvertToolParameters(tool *ToolConfig) (map[string]interface{}, []string) {
 	properties := make(map[string]interface{})
 	required := []string{}
 
 	for name, param := range tool.Parameters {
-		// Skip disabled parameters OR parameters with return override (both are blackbox to AI)
-		if !param.Enabled || param.Return != "" {
+		// Hide from AI if:
+		// 1. Explicitly disabled (enabled=false), OR
+		// 2. Has return override AND it doesn't contain {{$completion}} (blackbox value)
+		shouldHide := !param.Enabled || (param.Return != "" && !strings.Contains(param.Return, "{{$completion}}"))
+		if shouldHide {
 			continue
 		}
 

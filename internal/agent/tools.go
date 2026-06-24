@@ -8,7 +8,7 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	debugpkg "github.com/DeprecatedLuar/agentctl/internal/debug"
-	"github.com/DeprecatedLuar/agentctl/internal/directives"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/shell"
 )
 
@@ -39,12 +39,32 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 
 		// Process return override if set
 		if param.Return != "" {
+			// Build minimal context for directive processing
+			ctx := resolution.Context{
+				AgentPath: agentFolder,
+				AgentName: filepath.Base(agentFolder),
+			}
+
 			// Process directives in return value ({{file:}} and {{exec:}})
-			processedValue, err := directives.ProcessDirectives(param.Return, agentFolder)
+			processedValue, err := resolution.Process(param.Return, ctx)
 			if err != nil {
 				// Directive processing failed - return formatted error (match tool error format)
 				return fmt.Sprintf(exitCodeFormat, 1, fmt.Sprintf("return directive failed for '%s': %v", paramName, err))
 			}
+
+			// Handle {{$completion}} placeholder
+			if strings.Contains(processedValue, "{{$completion}}") {
+				aiValue := ""
+				if val, exists := args[paramName]; exists {
+					aiValue = strings.TrimSpace(fmt.Sprintf("%v", val))
+				}
+				if aiValue == "" {
+					processedValue = ""  // Empty optional param
+				} else {
+					processedValue = strings.ReplaceAll(processedValue, "{{$completion}}", aiValue)
+				}
+			}
+
 			substitutions[paramName] = strings.TrimSpace(processedValue)
 		}
 	}

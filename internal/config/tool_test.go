@@ -403,3 +403,153 @@ return = "{{unknown:./file.txt}}"
 		t.Error("expected error for unknown directive type, got none")
 	}
 }
+
+func TestConvertToolParameters(t *testing.T) {
+	tests := []struct {
+		name           string
+		tool           ToolConfig
+		expectVisible  []string // Parameters that should be visible to AI
+		expectHidden   []string // Parameters that should be hidden from AI
+		expectRequired []string // Parameters that should be required
+	}{
+		{
+			name: "default enabled behavior",
+			tool: ToolConfig{
+				Parameters: map[string]Parameter{
+					"normal": {
+						Description: "Normal param",
+						Type:        "string",
+						Required:    true,
+						Enabled:     true, // default
+					},
+					"with_default": {
+						Description: "Param with enabled not specified (defaults to true)",
+						Type:        "string",
+						Required:    false,
+						Enabled:     true, // This is what we expect from the parser
+					},
+				},
+			},
+			expectVisible:  []string{"normal", "with_default"},
+			expectHidden:   []string{},
+			expectRequired: []string{"normal"},
+		},
+		{
+			name: "explicitly disabled parameter",
+			tool: ToolConfig{
+				Parameters: map[string]Parameter{
+					"visible": {
+						Description: "Visible param",
+						Type:        "string",
+						Enabled:     true,
+					},
+					"hidden": {
+						Description: "Hidden param",
+						Type:        "string",
+						Enabled:     false, // explicitly disabled
+					},
+				},
+			},
+			expectVisible:  []string{"visible"},
+			expectHidden:   []string{"hidden"},
+			expectRequired: []string{},
+		},
+		{
+			name: "return field without completion (blackbox)",
+			tool: ToolConfig{
+				Parameters: map[string]Parameter{
+					"api_key": {
+						Description: "API key from file",
+						Type:        "string",
+						Enabled:     true,
+						Return:      "{{file:.env.KEY}}", // Has return, no {{$completion}}
+					},
+					"normal": {
+						Description: "Normal param",
+						Type:        "string",
+						Enabled:     true,
+					},
+				},
+			},
+			expectVisible:  []string{"normal"},
+			expectHidden:   []string{"api_key"}, // Hidden because return without {{$completion}}
+			expectRequired: []string{},
+		},
+		{
+			name: "return field WITH completion (AI provides value)",
+			tool: ToolConfig{
+				Parameters: map[string]Parameter{
+					"flag": {
+						Description: "Optional flag",
+						Type:        "string",
+						Required:    false,
+						Enabled:     true, // Default when not specified
+						Return:      "--flag {{$completion}}",
+					},
+					"another": {
+						Description: "Another param",
+						Type:        "string",
+						Required:    true,
+						Enabled:     true,
+					},
+				},
+			},
+			expectVisible:  []string{"flag", "another"}, // Both visible
+			expectHidden:   []string{},
+			expectRequired: []string{"another"},
+		},
+		{
+			name: "disabled with return (both hide mechanisms)",
+			tool: ToolConfig{
+				Parameters: map[string]Parameter{
+					"disabled_and_return": {
+						Description: "Disabled + return",
+						Type:        "string",
+						Enabled:     false,
+						Return:      "value",
+					},
+				},
+			},
+			expectVisible:  []string{},
+			expectHidden:   []string{"disabled_and_return"},
+			expectRequired: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			properties, required := ConvertToolParameters(&tt.tool)
+
+			// Check visible parameters
+			for _, paramName := range tt.expectVisible {
+				if _, ok := properties[paramName]; !ok {
+					t.Errorf("expected parameter '%s' to be visible, but it was hidden", paramName)
+				}
+			}
+
+			// Check hidden parameters
+			for _, paramName := range tt.expectHidden {
+				if _, ok := properties[paramName]; ok {
+					t.Errorf("expected parameter '%s' to be hidden, but it was visible", paramName)
+				}
+			}
+
+			// Check required parameters
+			if len(required) != len(tt.expectRequired) {
+				t.Errorf("expected %d required params, got %d: %v", len(tt.expectRequired), len(required), required)
+			}
+			for _, paramName := range tt.expectRequired {
+				found := false
+				for _, r := range required {
+					if r == paramName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected parameter '%s' to be required, but it wasn't", paramName)
+				}
+			}
+		})
+	}
+}

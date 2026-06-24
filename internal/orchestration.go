@@ -7,6 +7,7 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
@@ -59,7 +60,16 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 	}
 
 	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Tools)
-	prompt, promptIssues := config.Parse(o.AgentFolder, map[string]string{})
+	ctx := resolution.NewContext(
+		o.AgentFolder,
+		userID,
+		"", // username not available in handleMessageInternal
+		sessionID,
+		iface,
+		agentCfg.Model,
+		agentCfg.Provider,
+	)
+	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 
 	// Collect all validation issues
 	allIssues := append(agentIssues, toolIssues...)
@@ -260,7 +270,16 @@ func (o *Orchestrator) handleMessageInternalWithTools(userID, sessionID, iface, 
 	}
 
 	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Tools)
-	prompt, promptIssues := config.Parse(o.AgentFolder, map[string]string{})
+	ctx := resolution.NewContext(
+		o.AgentFolder,
+		userID,
+		"", // username not available in handleMessageInternalWithTools
+		sessionID,
+		iface,
+		agentCfg.Model,
+		agentCfg.Provider,
+	)
+	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 
 	// Apply tool whitelist if specified
 	if len(toolWhitelist) > 0 {
