@@ -103,7 +103,7 @@ func TestEnsureContact(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// First call - should create file
-	err := EnsureContact(tmpDir, "cli", "alice", "Alice")
+	err := EnsureContact(tmpDir, "cli", "alice", "Alice", "")
 	if err != nil {
 		t.Fatalf("EnsureContact() first call error = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestEnsureContact(t *testing.T) {
 	}
 
 	// Second call with same key - should be no-op
-	err = EnsureContact(tmpDir, "cli", "alice", "Alice Updated")
+	err = EnsureContact(tmpDir, "cli", "alice", "Alice Updated", "")
 	if err != nil {
 		t.Fatalf("EnsureContact() second call error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestEnsureContact(t *testing.T) {
 	}
 
 	// Third call with different interface - should add
-	err = EnsureContact(tmpDir, "telegram", "12345", "Alice")
+	err = EnsureContact(tmpDir, "telegram", "12345", "Alice", "alice_handle")
 	if err != nil {
 		t.Fatal(err)
 	}

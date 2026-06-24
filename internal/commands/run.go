@@ -11,6 +11,8 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
+	"github.com/DeprecatedLuar/agentctl/internal/interfaces/cli"
+	"github.com/DeprecatedLuar/agentctl/internal/interfaces/telegram"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
@@ -205,16 +207,16 @@ func HandleRun(args []string) error {
 	for _, iface := range interfacesList {
 		switch iface {
 		case interfaceCLI:
-			cli := interfaces.NewCLI(absPath, orch, store, lg, verbose)
-			dispatcher.Register(cli)
-			interfaceInstances = append(interfaceInstances, cli)
+			cliInterface := cli.NewCLI(absPath, orch, store, lg, verbose)
+			dispatcher.Register(cliInterface)
+			interfaceInstances = append(interfaceInstances, cliInterface)
 		case interfaceTelegram:
-			telegram, err := interfaces.NewTelegram(absPath, transcriber, orch, store, lg, verbose)
+			telegramInterface, err := telegram.NewTelegram(absPath, transcriber, orch, store, lg, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize telegram interface: %w", err)
 			}
-			dispatcher.Register(telegram)
-			interfaceInstances = append(interfaceInstances, telegram)
+			dispatcher.Register(telegramInterface)
+			interfaceInstances = append(interfaceInstances, telegramInterface)
 		default:
 			return fmt.Errorf("unknown interface: %s", iface)
 		}

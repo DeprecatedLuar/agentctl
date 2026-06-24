@@ -131,20 +131,37 @@ The system follows hexagonal architecture with clear separation between I/O adap
   - deliverToChannels() resolves and dispatches to multiple interfaces
 
 **6. internal/interfaces** - I/O adapters (pure transport layer)
-- `cli.go`: Unix socket listener, JSON protocol
-  - Normal flow: pure I/O adapter (passes contact ID to handler)
-  - Exception: Explicit resolution for `--user/--session` flags (uses session.ResolveExplicit)
-  - Implements Sender interface for outbound delivery (Send() not yet implemented)
-- `telegram.go`: Telegram bot with long polling, typing indicators
-  - Pure I/O adapter (no session imports, no resolution logic)
-  - Implements Sender interface for outbound delivery via bot API
-- `dispatch.go`: Outbound message dispatcher
-  - Sender interface: InterfaceName() and Send(platformID, content)
-  - OutboundDispatcher: registers interface senders, routes Send() calls
-  - Used for --channel and --channel-inject delivery
-- **Key principle**: Interfaces are thin I/O adapters that call MessageHandler, nothing more
+- Organized by interface with nested packages for modularity:
+  - `cli/` (package cli) - Unix socket interface
+    - `interface.go`: Socket listener, lifecycle, message routing (normal/explicit/options flows)
+    - `commands.go`: Command handling + CLI-specific formatting (numbered lists, `/sessions attach <number>`)
+  - `telegram/` (package telegram) - Telegram bot interface
+    - `interface.go`: Bot polling, typing indicators, voice transcription, lifecycle
+    - `commands.go`: Command handling + Telegram-specific formatting (plain lists)
+  - `dispatch.go` (package interfaces) - Outbound message dispatcher
+    - Sender interface: InterfaceName() and Send(platformID, content)
+    - OutboundDispatcher: registers interface senders, routes Send() calls
+    - Used for --channel and --channel-inject delivery
 
-**7. internal/session** - Session management domain (port implementation)
+**Interface responsibilities:**
+- Each interface detects system commands via syscommands.Parse()
+- Calls syscommands helpers (NewSession/ListSessions/SwitchSession) for business logic
+- Formats CommandResult output for their specific UX (CLI: numbered, Telegram: plain)
+- Implements Sender interface for cross-interface message delivery
+- CLI exception: Retains minimal session.ResolveExplicit for `--user/--session` flags
+- **Key principle**: Interfaces own their UX - detect commands, call helpers, format appropriately
+
+**7. internal/syscommands** - System command framework
+- `types.go`: Command, CommandResult, SessionInfo types
+- `handler.go`: Command parsing and business logic
+  - Parse() detects "/" prefix, returns Command{Name, Args}
+  - Helper functions: NewSession(), ListSessions(), SwitchSession()
+  - No routing logic - interfaces call helpers directly
+- Commands: `/new` (create session), `/sessions` (list), `/sessions attach <arg>` (switch by number or ID)
+- Design: Interfaces handle detection/formatting, syscommands provides business logic
+- Returns structured data (CommandResult), interfaces format for their UX
+
+**8. internal/session** - Session management domain (port implementation)
 - `session.go`: ResolvedSession type, NewSessionID() with `YYYYMMDD_HHMMSS_<6-hex>` format, SessionMeta with title
 - `identity.go`: Merged identities and contacts in `.data/contacts.toml` - both [[identity]] and [[contact]] sections in single file
   - ResolveUser() for linking contacts to named identities
@@ -167,7 +184,7 @@ The system follows hexagonal architecture with clear separation between I/O adap
 - Respects `memory.max_messages` limit from agent.toml
 - **Thread Safety**: Per-session mutexes prevent race conditions between concurrent Save/Load/SetMeta operations
 
-**8. internal/commands** - CLI command handlers
+**9. internal/commands** - CLI command handlers
 - `init.go`: Scaffold agent folder from embedded templates (idempotent - skips existing files)
 - `run.go`: Start daemon, load config/tools/prompt, spawn interfaces, run migration, create dispatcher
 - `chat.go`: Send message to Unix socket
@@ -175,26 +192,26 @@ The system follows hexagonal architecture with clear separation between I/O adap
   - Supports comma-separated lists for channel and tool flags
 - `inject.go`: Manual session injection without running agent (--role, --session, --agent)
 
-**9. internal/directives** - Directive processor for {{file:}} and {{exec:}} syntax
+**10. internal/directives** - Directive processor for {{file:}} and {{exec:}} syntax
 - `process.go`: ProcessDirectives() with recursive expansion (10-level depth limit)
 - Used by both prompt parser and tool parameter return values
 - Supports relative paths (agent folder), ~/ expansion, absolute paths
 
-**10. internal/debug** - Debug utilities for inspecting AI requests
+**11. internal/debug** - Debug utilities for inspecting AI requests
 - LogRequest/LogResponse/LogToolExecution functions for structured debug logging
 - Writes timestamped JSON files to `.data/debug-calls/` when `debug_calls = true`
 - Auto-cleanup to prevent disk bloat (keeps last 10 files)
 
-**11. internal/registry** - XDG agent registry for name-based resolution
+**12. internal/registry** - XDG agent registry for name-based resolution
 - Registry file: `~/.local/share/agentctl/agents` (one path per line)
 - Register() adds agent to registry, Resolve() looks up by name or path
 - Auto-cleanup of dead entries, handles multiple-match ambiguity
 
-**12. internal/templates** - Embedded template files (files/ directory)
+**13. internal/templates** - Embedded template files (files/ directory)
 - Pure data package, no logic
 - Template structure: `files/config/`, `files/prompts/`, `files/tools/`
 
-**13. cmd/agentctl** - Main entry point with gohelp-luar documentation
+**14. cmd/agentctl** - Main entry point with gohelp-luar documentation
 - `main.go`: Command routing, help system with topic pages (setup, config, tools, prompt, interfaces, memory)
 
 ### Agent Folder Structure
@@ -400,7 +417,55 @@ Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
 - Each session gets its own mutex via `sync.Map` (zero contention between different sessions)
 - Title generation passes messages in-memory (not re-reading from disk) to avoid file I/O race
 
+### System Commands
+
+Built-in commands for session management (prefixed with `/`):
+
+**`/new`** - Create new session
+- Generates new session ID with auto-switch
+- Returns model, provider, memory info
+- Works on all interfaces (CLI, Telegram)
+
+**`/sessions`** - List all sessions
+- Shows sessions in reverse chronological order (newest first)
+- Marks active session with `[active]`
+- CLI: numbered list, Telegram: plain list
+- Example output:
+  ```
+  Sessions:
+  1. Planning feature X (2026-06-17) [active]
+  2. Bug investigation (2026-06-16)
+  ```
+
+**`/sessions attach <arg>`** - Switch session
+- CLI: accepts number (from list) or literal session ID
+  - `/sessions attach 2` - switch to session #2
+  - `/sessions attach 20260615_143022_a1b2c3` - switch by ID
+- Telegram: only supports literal session ID (no numbering)
+- Future: Telegram inline keyboard buttons for one-tap switching
+
+**Command Architecture:**
+- Detected by interfaces before calling orchestrator
+- Parsed by `syscommands.Parse()` - returns `Command{Name, Args}`
+- Interfaces call syscommands helpers, format output for their UX
+- No agent execution, no session history - immediate response
+
 ### Message Flow
+
+**Command Flow (System Commands: /new, /sessions, /sessions attach):**
+```
+Interface (CLI/Telegram) → syscommands.Parse(content)
+              ↓
+         Detect "/" prefix → Command{Name, Args}
+              ↓
+         Interface.handleCommand()
+              ↓
+         Call syscommands helpers (NewSession/ListSessions/SwitchSession)
+              ↓
+         Format CommandResult for interface UX
+              ↓
+         return formatted response (no orchestrator, no agent execution)
+```
 
 **Normal Flow (Telegram, CLI auto-resolution):**
 ```
@@ -497,13 +562,14 @@ Two complementary debugging mechanisms:
 - **SessionStore in domain** - Kept in `session/` package to avoid circular imports (domain types stay with interface)
 - **Merged identities & contacts** - Single `.data/contacts.toml` file with both user-edited identities and auto-generated contacts
 - **Outbound dispatcher** - Cross-interface message delivery via Sender interface registration
+- **Command handling in interfaces** - Each interface detects commands, calls syscommands helpers, formats output for their UX (no centralized routing)
 - **No CLI framework** - Simple stdlib arg parsing (KISS principle), gohelp-luar for documentation only
 - **Modular providers** - Each provider in separate file (openai.go, openrouter.go) for single responsibility
 - **Daemon architecture** - Single process, config-driven interfaces (agent.toml: `interfaces = ["cli", "telegram"]`)
 - **Unix socket for CLI** - JSON protocol, session isolation via user ID + session ID
 - **Shell-based tools** - Execute via `sh -c` with {{var}} substitution
 - **JSONL not SQLite** - Simple append-only files for sessions (easier debugging, no DB overhead)
-- **Flat package structure** - internal/interfaces/ not internal/interfaces/cli/ (keep simple until growth demands nesting)
+- **Nested interface packages** - Each interface (cli/, telegram/) is a separate package with interface.go + commands.go for modularity
 - **Runtime config loading** - Hot-reload on every request, daemon survives malformed configs
 - **Identity-based sessions** - Support multiple contacts per user (CLI + Telegram unified)
 - **Dual migration strategy** - Startup bulk migration + lazy per-message migration (no restart needed)
@@ -524,16 +590,47 @@ Each provider is self-contained in `internal/providers/llm/{name}.go`:
 
 ### Adding New Interfaces
 
-Each interface implements the `Interface` contract defined in `internal/ports.go`:
-1. Create new file in `internal/interfaces/` (e.g., `discord.go`)
-2. Import `internal` package for port interfaces
-3. Implement `internal.Interface` contract: `Start(ctx context.Context) error`
-4. Accept `internal.MessageHandler` in constructor
-5. Receive input, call `handler.HandleMessage(iface, contactID, displayName, content)`
-6. Keep interface as thin I/O adapter - no session logic, no resolution
-7. Add interface name to factory in `internal/commands/run.go`
-8. Update agent.toml template and contacts.toml contact format if needed
+Each interface is a nested package under `internal/interfaces/`:
 
-**Interface responsibility**: Pure I/O transport. Extract platform-specific user ID, call MessageHandler, send response back. Nothing more.
+**Structure:**
+```
+internal/interfaces/
+  newinterface/          # package newinterface
+    interface.go         # Core interface logic + lifecycle
+    commands.go          # Command handling + UX formatting
+```
 
-**Exception**: CLI interface keeps minimal `session.ResolveExplicit` for `--user/--session` flags (documented architectural exception for explicit resolution feature).
+**Implementation steps:**
+1. Create `internal/interfaces/newinterface/` directory
+2. Create `interface.go` with package name matching directory
+3. Import `github.com/DeprecatedLuar/agentctl/internal` for port interfaces
+4. Implement `internal.Interface` contract: `Start(ctx context.Context) error`
+5. Implement `Sender` interface: `InterfaceName() string` and `Send(platformID, content string) error`
+6. Accept `internal.MessageHandler` in constructor (e.g., `NewNewInterface()`)
+7. In message handler:
+   - Extract platform-specific user ID, display name, username
+   - Detect system commands via `syscommands.Parse(content)`
+   - If command: call syscommands helpers, format output, return (skip orchestrator)
+   - If message: call `handler.HandleMessage(iface, contactID, displayName, username, content)`
+8. Create `commands.go` for command handling and UX-specific formatting
+9. Add interface to factory in `internal/commands/run.go` with imports:
+   ```go
+   import "github.com/DeprecatedLuar/agentctl/internal/interfaces/newinterface"
+
+   case "newinterface":
+       iface := newinterface.NewNewInterface(absPath, orch, store, lg, verbose)
+       dispatcher.Register(iface)
+       interfaceInstances = append(interfaceInstances, iface)
+   ```
+10. Update agent.toml template and contacts.toml contact format if needed
+
+**Interface responsibilities:**
+- Pure I/O transport - extract platform IDs, call MessageHandler, send response
+- Detect and handle system commands locally (no orchestrator involvement)
+- Format command output for interface-specific UX
+- Keep thin - no session logic, no resolution (except CLI's documented exception)
+
+**File organization:**
+- `interface.go`: ~250-350 lines - socket/polling/lifecycle, message routing, Sender implementation
+- `commands.go`: ~80-100 lines - handleCommand(), format functions for /new, /sessions, etc.
+- Minimal split prevents over-fragmentation while keeping concerns separated

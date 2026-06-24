@@ -367,7 +367,7 @@ func TestJSONLStore_EnsureContactDelegation(t *testing.T) {
 	store := NewJSONLStore(tmpDir)
 
 	// This should not error and should create contacts file
-	err := store.EnsureContact("cli", "alice", "Alice")
+	err := store.EnsureContact("cli", "alice", "Alice", "")
 	if err != nil {
 		t.Fatalf("EnsureContact failed: %v", err)
 	}
