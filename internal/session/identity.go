@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/DeprecatedLuar/agentctl/internal/config"
 )
 
 const (
@@ -28,6 +29,7 @@ const (
 type Identity struct {
 	ID       string   `toml:"id"`
 	Contacts []string `toml:"contacts"` // Format: "interface:platformID"
+	Allowed  *bool    `toml:"allowed,omitempty"` // Access control (nil = use default policy)
 }
 
 // Contact represents a contact entry (auto-generated)
@@ -37,6 +39,7 @@ type Contact struct {
 	DisplayName string    `toml:"display_name"`
 	Username    string    `toml:"username,omitempty"` // Optional: @handle (e.g., Telegram @username)
 	FirstSeen   time.Time `toml:"first_seen"`
+	Allowed     *bool     `toml:"allowed,omitempty"` // Access control (nil = use default policy)
 }
 
 // identitiesConfig represents the merged file structure
@@ -205,6 +208,13 @@ func EnsureContact(agentFolder, iface, platformID, displayName, username string)
 		}
 	}
 
+	// Load access policy from agent config
+	allowByDefault := true // Default to true for backward compatibility
+	agentCfg, _ := config.LoadAgent(agentFolder)
+	if agentCfg != nil {
+		allowByDefault = agentCfg.Access.AllowByDefault
+	}
+
 	// Append new contact
 	newContact := Contact{
 		Interface:   iface,
@@ -212,12 +222,61 @@ func EnsureContact(agentFolder, iface, platformID, displayName, username string)
 		DisplayName: displayName,
 		Username:    username,
 		FirstSeen:   time.Now(),
+		Allowed:     &allowByDefault,
 	}
 
 	cfg.Contacts = append(cfg.Contacts, newContact)
 
 	// Write back entire file (preserves identities section)
 	return saveIdentitiesFile(agentFolder, cfg)
+}
+
+// CheckAccess checks if a contact is allowed to interact with the agent.
+// Three-tier precedence: Identity.allowed > Contact.allowed > allow_by_default
+// Returns (allowed bool, err error) - false means denial, error means file I/O issue
+func CheckAccess(agentFolder, iface, platformID string) (bool, error) {
+	// Load contacts file
+	cfg, err := loadIdentitiesFile(agentFolder)
+	if err != nil {
+		return false, fmt.Errorf("failed to load contacts: %w", err)
+	}
+
+	// Find contact by interface+platformID
+	var contact *Contact
+	for i := range cfg.Contacts {
+		if cfg.Contacts[i].Interface == iface && cfg.Contacts[i].ID == platformID {
+			contact = &cfg.Contacts[i]
+			break
+		}
+	}
+
+	// Contact not found - allow by default (backward compat)
+	if contact == nil {
+		return true, nil
+	}
+
+	// Check if contact is linked to an identity
+	contactKey := ContactKey(iface, platformID)
+	for _, identity := range cfg.Identities {
+		for _, identityContact := range identity.Contacts {
+			if identityContact == contactKey {
+				// Found identity - check identity.allowed first
+				if identity.Allowed != nil {
+					return *identity.Allowed, nil
+				}
+				// Identity has no allowed field - fall through to contact check
+				break
+			}
+		}
+	}
+
+	// No identity override - check contact.allowed
+	if contact.Allowed != nil {
+		return *contact.Allowed, nil
+	}
+
+	// No explicit setting - allow by default (backward compat)
+	return true, nil
 }
 
 // ParseContactKey splits a contact key "interface:platformID" into components

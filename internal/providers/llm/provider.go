@@ -42,17 +42,17 @@ type Provider interface {
 // NewProvider creates a provider based on the config
 func NewProvider(cfg *config.AgentConfig, agentFolder string, logger *slog.Logger) (Provider, error) {
 	// Check if provider is a custom endpoint (http/https URL)
-	if strings.HasPrefix(cfg.Provider, "http://") || strings.HasPrefix(cfg.Provider, "https://") {
+	if strings.HasPrefix(cfg.Agent.Provider, "http://") || strings.HasPrefix(cfg.Agent.Provider, "https://") {
 		return NewGenericProvider(cfg, agentFolder, logger)
 	}
 
 	// Named providers
-	switch cfg.Provider {
+	switch cfg.Agent.Provider {
 	case ProviderOpenAI:
 		return NewOpenAIProvider(cfg, agentFolder, logger)
 	case ProviderOpenRouter:
 		return NewOpenRouterProvider(cfg, agentFolder, logger)
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s (must be 'openai', 'openrouter', or an http/https URL)", cfg.Provider)
+		return nil, fmt.Errorf("unsupported provider: %s (must be 'openai', 'openrouter', or an http/https URL)", cfg.Agent.Provider)
 	}
 }

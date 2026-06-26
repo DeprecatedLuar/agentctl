@@ -67,8 +67,8 @@ func NewSession(userID, iface string, store session.SessionStore, agentFolder st
 	return CommandResult{
 		Type: ResultTypeNewSession,
 		Data: map[string]string{
-			"model":    agentConfig.Model,
-			"provider": agentConfig.Provider,
+			"model":    agentConfig.Agent.Model,
+			"provider": agentConfig.Agent.Provider,
 			"memory":   memoryStr,
 		},
 	}, nil

@@ -44,14 +44,17 @@ type ValidationIssue struct {
 }
 
 type AgentConfig struct {
-	Provider   string       `toml:"provider"`
-	Model      string       `toml:"model"`
-	Tools      []string     `toml:"tools"`
-	Interfaces []string     `toml:"interfaces"`
-	Memory     MemoryConfig `toml:"memory"`
-	Audio      *AudioConfig `toml:"audio"`      // Optional
-	Logging    *bool        `toml:"logging"`    // Default: true if nil
-	DebugCalls *bool        `toml:"debug_calls"` // Default: false if nil, writes full request/response to .data/debug-calls/
+	Agent  AgentSection `toml:"agent"`
+	Access AccessConfig `toml:"access"`
+	Memory MemoryConfig `toml:"memory"`
+	Audio  *AudioConfig `toml:"audio"` // Optional
+}
+
+type AgentSection struct {
+	Provider string      `toml:"provider"`
+	Model    string      `toml:"model"`
+	Tools    []string    `toml:"tools"`
+	Logging  interface{} `toml:"logging"` // false | true | "debug"
 }
 
 type MemoryConfig struct {
@@ -61,6 +64,31 @@ type MemoryConfig struct {
 type AudioConfig struct {
 	Provider string `toml:"provider"` // "whisper" or http/https URL
 	Model    string `toml:"model"`
+}
+
+type AccessConfig struct {
+	AllowByDefault bool     `toml:"allow_by_default"` // Default access policy for new contacts
+	Interfaces     []string `toml:"interfaces"`
+}
+
+// LoggingEnabled returns true if file logging is enabled (any value except false)
+func (a *AgentSection) LoggingEnabled() bool {
+	if a.Logging == nil {
+		return true // Default to enabled
+	}
+	if b, ok := a.Logging.(bool); ok {
+		return b
+	}
+	// String values ("debug") always mean enabled
+	return true
+}
+
+// IsDebugMode returns true if logging is set to "debug"
+func (a *AgentSection) IsDebugMode() bool {
+	if s, ok := a.Logging.(string); ok {
+		return s == "debug"
+	}
+	return false
 }
 
 func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
@@ -87,13 +115,13 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 	}
 
 	// Validate required fields
-	if cfg.Provider == "" {
+	if cfg.Agent.Provider == "" {
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
 			Message: fmt.Sprintf("%s: provider field is required", agentConfigFile),
 		})
 	}
-	if cfg.Model == "" {
+	if cfg.Agent.Model == "" {
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
 			Message: fmt.Sprintf("%s: model field is required", agentConfigFile),
@@ -101,7 +129,7 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 	}
 
 	// Validate interfaces
-	for _, iface := range cfg.Interfaces {
+	for _, iface := range cfg.Access.Interfaces {
 		if iface != interfaceCLI && iface != interfaceTelegram {
 			issues = append(issues, ValidationIssue{
 				Type:    IssueError,
@@ -114,9 +142,9 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 	envPath := filepath.Join(agentPath, envFile)
 	_ = godotenv.Load(envPath)
 
-	if cfg.Provider != "" && !strings.HasPrefix(cfg.Provider, "http") {
+	if cfg.Agent.Provider != "" && !strings.HasPrefix(cfg.Agent.Provider, "http") {
 		// Named provider - API key is required
-		switch cfg.Provider {
+		switch cfg.Agent.Provider {
 		case providerOpenAI:
 			if os.Getenv(envOpenAI) == "" {
 				issues = append(issues, ValidationIssue{
@@ -136,7 +164,7 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 	// HTTP endpoints: skip validation (unknown auth requirements)
 
 	// Check Telegram bot token if telegram interface is enabled
-	for _, iface := range cfg.Interfaces {
+	for _, iface := range cfg.Access.Interfaces {
 		if iface == interfaceTelegram {
 			if os.Getenv(envTelegram) == "" {
 				issues = append(issues, ValidationIssue{
@@ -149,19 +177,4 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 	}
 
 	return &cfg, issues
-}
-
-// IsLoggingEnabled returns true if logging is enabled (default: true)
-func (c *AgentConfig) IsLoggingEnabled() bool {
-	if c.Logging == nil {
-		return true // Default
-	}
-	return *c.Logging
-}
-
-func (c *AgentConfig) IsDebugCallsEnabled() bool {
-	if c.DebugCalls == nil {
-		return false // Default
-	}
-	return *c.DebugCalls
 }

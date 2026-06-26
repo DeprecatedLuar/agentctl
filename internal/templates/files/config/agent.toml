@@ -1,8 +1,12 @@
+[agent]
 provider = "openrouter"
 model = "openrouter/free"
 tools = []
+logging = true  # false | true | "debug"
+
+[access]
+allow_by_default = true
 interfaces = ["cli"]
-logging = true
 
 [memory]
 max_messages = 0

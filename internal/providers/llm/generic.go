@@ -39,7 +39,7 @@ func NewGenericProvider(cfg *config.AgentConfig, agentFolder string, logger *slo
 
 	// Build client options
 	opts := []option.RequestOption{
-		option.WithBaseURL(cfg.Provider), // Use provider string as base URL
+		option.WithBaseURL(cfg.Agent.Provider), // Use provider string as base URL
 	}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
@@ -49,9 +49,9 @@ func NewGenericProvider(cfg *config.AgentConfig, agentFolder string, logger *slo
 
 	return &GenericProvider{
 		client:   client,
-		model:    cfg.Model,
+		model:    cfg.Agent.Model,
 		logger:   logger,
-		endpoint: cfg.Provider,
+		endpoint: cfg.Agent.Provider,
 	}, nil
 }
 

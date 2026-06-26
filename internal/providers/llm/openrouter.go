@@ -53,10 +53,10 @@ func NewOpenRouterProvider(cfg *config.AgentConfig, agentFolder string, logger *
 
 	return &OpenRouterProvider{
 		client:            client,
-		model:             cfg.Model,
+		model:             cfg.Agent.Model,
 		logger:            logger,
 		agentFolder:       agentFolder,
-		debugCallsEnabled: cfg.IsDebugCallsEnabled(),
+		debugCallsEnabled: cfg.Agent.IsDebugMode(),
 	}, nil
 }
 

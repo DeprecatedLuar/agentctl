@@ -5,6 +5,7 @@
 [[identity]]
 id = "{{username}}"
 contacts = ["cli:{{username}}"]
+allowed = true
 
 # ============================================
 # CONTACTS (auto-generated - do not edit)

@@ -37,6 +37,17 @@ func (o *Orchestrator) HandleMessage(iface, contactID, displayName, username, co
 		return "", fmt.Errorf("session resolution failed: %w", err)
 	}
 
+	// Check access control
+	allowed, err := session.CheckAccess(o.AgentFolder, iface, contactID)
+	if err != nil {
+		o.Logger.Error("access check failed", "contact", contactID, "error", err)
+		return "", fmt.Errorf("access check failed: %w", err)
+	}
+	if !allowed {
+		o.Logger.Warn("access denied", "contact", contactID, "interface", iface)
+		return "", fmt.Errorf("access denied")
+	}
+
 	return o.handleMessageInternal(resolved.UserID, resolved.SessionID, iface, content)
 }
 
@@ -44,6 +55,24 @@ func (o *Orchestrator) HandleMessage(iface, contactID, displayName, username, co
 // Used by CLI interface when --user/--session flags are provided
 // Bypasses contact resolution and uses provided IDs directly
 func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content string) (string, error) {
+	// Reverse lookup platformID for access check
+	platformID, err := session.LookupPlatformID(o.AgentFolder, userID, iface)
+	if err != nil {
+		o.Logger.Error("platform lookup failed", "user", userID, "interface", iface, "error", err)
+		return "", fmt.Errorf("platform lookup failed: %w", err)
+	}
+
+	// Check access control
+	allowed, err := session.CheckAccess(o.AgentFolder, iface, platformID)
+	if err != nil {
+		o.Logger.Error("access check failed", "user", userID, "error", err)
+		return "", fmt.Errorf("access check failed: %w", err)
+	}
+	if !allowed {
+		o.Logger.Warn("access denied", "user", userID, "interface", iface)
+		return "", fmt.Errorf("access denied")
+	}
+
 	return o.handleMessageInternal(userID, sessionID, iface, content)
 }
 
@@ -59,15 +88,15 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 		return "", err
 	}
 
-	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Tools)
+	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Agent.Tools)
 	ctx := resolution.NewContext(
 		o.AgentFolder,
 		userID,
 		"", // username not available in handleMessageInternal
 		sessionID,
 		iface,
-		agentCfg.Model,
-		agentCfg.Provider,
+		agentCfg.Agent.Model,
+		agentCfg.Agent.Provider,
 	)
 	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 
@@ -171,6 +200,24 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 		}
 		userID = resolved.UserID
 		sessionID = resolved.SessionID
+
+		// Reverse lookup platformID for access check
+		platformID, err := session.LookupPlatformID(o.AgentFolder, userID, opts.Interface)
+		if err != nil {
+			o.Logger.Error("platform lookup failed", "user", userID, "interface", opts.Interface, "error", err)
+			return "", fmt.Errorf("platform lookup failed: %w", err)
+		}
+
+		// Check access control
+		allowed, err := session.CheckAccess(o.AgentFolder, opts.Interface, platformID)
+		if err != nil {
+			o.Logger.Error("access check failed", "user", userID, "error", err)
+			return "", fmt.Errorf("access check failed: %w", err)
+		}
+		if !allowed {
+			o.Logger.Warn("access denied", "user", userID, "interface", opts.Interface)
+			return "", fmt.Errorf("access denied")
+		}
 	} else {
 		// Auto resolution (like HandleMessage)
 		resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, opts.Interface, opts.ContactID, opts.DisplayName, opts.Username)
@@ -180,6 +227,17 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 		}
 		userID = resolved.UserID
 		sessionID = resolved.SessionID
+
+		// Check access control
+		allowed, err := session.CheckAccess(o.AgentFolder, opts.Interface, opts.ContactID)
+		if err != nil {
+			o.Logger.Error("access check failed", "contact", opts.ContactID, "error", err)
+			return "", fmt.Errorf("access check failed: %w", err)
+		}
+		if !allowed {
+			o.Logger.Warn("access denied", "contact", opts.ContactID, "interface", opts.Interface)
+			return "", fmt.Errorf("access denied")
+		}
 	}
 
 	// Run agent and get response
@@ -269,15 +327,15 @@ func (o *Orchestrator) handleMessageInternalWithTools(userID, sessionID, iface, 
 		return "", err
 	}
 
-	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Tools)
+	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Agent.Tools)
 	ctx := resolution.NewContext(
 		o.AgentFolder,
 		userID,
 		"", // username not available in handleMessageInternalWithTools
 		sessionID,
 		iface,
-		agentCfg.Model,
-		agentCfg.Provider,
+		agentCfg.Agent.Model,
+		agentCfg.Agent.Provider,
 	)
 	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 

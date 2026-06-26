@@ -50,7 +50,7 @@ func NewOpenAIProvider(cfg *config.AgentConfig, agentFolder string, logger *slog
 
 	return &OpenAIProvider{
 		client: client,
-		model:  cfg.Model,
+		model:  cfg.Agent.Model,
 		logger: logger,
 	}, nil
 }

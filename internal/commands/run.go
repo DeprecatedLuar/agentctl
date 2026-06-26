@@ -94,7 +94,7 @@ func HandleRun(args []string) error {
 	var tools []config.ToolConfig
 	if agentCfg != nil {
 		var toolIssues []config.ValidationIssue
-		tools, toolIssues = config.LoadTools(absPath, agentCfg.Tools)
+		tools, toolIssues = config.LoadTools(absPath, agentCfg.Agent.Tools)
 		allIssues = append(allIssues, toolIssues...)
 	}
 
@@ -127,16 +127,16 @@ func HandleRun(args []string) error {
 	// Setup logger
 	// logging = false → stdout only
 	// logging = true or flags → stdout + file
-	enableFileLogging := agentCfg.IsLoggingEnabled() || log || verbose || debug
+	enableFileLogging := agentCfg.Agent.LoggingEnabled() || log || verbose || debug
 	logDir := filepath.Join(absPath, dataDir, logsDir)
 	lg, err := logger.Setup(logDir, verbose, debug, enableFileLogging)
 	if err != nil {
 		return fmt.Errorf("setup logger: %w", err)
 	}
 	lg.Info("agent started",
-		"provider", agentCfg.Provider,
-		"model", agentCfg.Model,
-		"interfaces", agentCfg.Interfaces,
+		"provider", agentCfg.Agent.Provider,
+		"model", agentCfg.Agent.Model,
+		"interfaces", agentCfg.Access.Interfaces,
 	)
 
 	// Ensure .data directory exists
@@ -182,12 +182,12 @@ func HandleRun(args []string) error {
 	dispatcher := interfaces.NewOutboundDispatcher()
 
 	// Default interfaces to ["cli"] if not specified
-	interfacesList := agentCfg.Interfaces
+	interfacesList := agentCfg.Access.Interfaces
 	if len(interfacesList) == 0 {
 		interfacesList = defaultInterfaces
 	}
 
-	fmt.Printf("Agent: %s/%s\n", agentCfg.Provider, agentCfg.Model)
+	fmt.Printf("Agent: %s/%s\n", agentCfg.Agent.Provider, agentCfg.Agent.Model)
 	fmt.Printf("Tools: %d | Interfaces: %v\n\n", len(tools), interfacesList)
 
 	// Create context for graceful shutdown
