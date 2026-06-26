@@ -91,7 +91,11 @@ The system follows hexagonal architecture with clear separation between I/O adap
 ### Component Boundaries
 
 **1. internal/config** - All file loading (agent.toml, tools/*.toml, prompt file)
-- `agent.go`: AgentConfig with provider, model, tools, interfaces, memory settings
+- `agent.go`: AgentConfig with nested sections: [agent], [access], [memory], [audio]
+  - AgentSection: provider, model, tools, logging (false | true | "debug")
+  - AccessConfig: allow_by_default, interfaces
+  - MemoryConfig: max_messages
+  - AudioConfig: optional audio provider settings
 - `tool.go`: ToolConfig with dynamic parameter sections (all TOML sections except command/description are parameters)
 - `prompt.go`: Custom format parser with `[>role]` static sections and `[>>role]` input section
   - Uses resolution.Process() for template resolution (directives + variables)
@@ -231,20 +235,20 @@ The system follows hexagonal architecture with clear separation between I/O adap
 ```
 agent-folder/
   config/
-    agent.toml          # provider, model, tools, interfaces, memory, debug_calls config
+    agent.toml          # [agent], [access], [memory], [audio] sections
   prompts/
     default             # [>role] static, [>>role] input sections
   tools/
     *.toml              # Tool definitions (example.toml excluded from auto-load)
   .env                  # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
   .data/
-    contacts.toml       # Merged file: [[identity]] (user-edited) + [[contact]] (auto-generated)
+    contacts.toml       # Merged file: [[identity]] + [[contact]] with allowed field
     agent.sock          # Unix socket for CLI interface
     sessions/
       {userID}/
         {sessionID}.jsonl  # Per-session conversation history
         .last_session      # Most recent session per interface
-    debug-calls/        # Full request/response JSON (if debug_calls = true)
+    debug-calls/        # Full request/response JSON (if logging = "debug")
       2026-*.json       # Timestamped debug files
 ```
 
@@ -383,6 +387,7 @@ Merged file with two sections:
 [[identity]]
 id = "alice"
 contacts = ["cli:alice", "telegram:123456789"]
+allowed = true  # Optional: overrides contact/default policy
 
 # ============================================
 # CONTACTS (auto-generated - do not edit)
@@ -393,6 +398,7 @@ interface = "telegram"
 id = "123456789"
 display_name = "Alice"
 first_seen = 2026-06-17T15:04:05Z
+allowed = true  # Auto-set from allow_by_default policy
 ```
 
 Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
@@ -422,7 +428,12 @@ Contact format: `interface:platformID` (e.g., `cli:luar`, `telegram:12345678`)
   - Creates new session if none exists (consistent with Resolve)
 - `LookupPlatformID(agentFolder, userID, iface)` - Reverse lookup from identity ID to platform ID
   - First match wins when identity has multiple contacts for same interface
+- `CheckAccess(agentFolder, iface, platformID)` - Access control check
+  - Three-tier precedence: Identity.allowed > Contact.allowed > allow_by_default
+  - Returns (bool, error) - false means denial, error means file I/O issue
+  - Called by all message handlers before agent execution
 - Contact auto-logged to `.data/contacts.toml` (deduplication by interface+id)
+- New contacts auto-assigned `allowed` field from `allow_by_default` policy
 - `memory.max_messages` in agent.toml controls history limit (0 = unlimited)
 
 **Auto-Title Generation:**
@@ -567,11 +578,16 @@ Two complementary debugging mechanisms:
    ./agentctl run _test-agent --debug
    ```
 
-2. **debug_calls = true** (agent.toml): Writes full request/response JSON to `.data/debug-calls/`
+2. **logging = "debug"** (agent.toml): Writes full request/response JSON to `.data/debug-calls/`
    - Timestamped files: `2026-06-12T15-04-05-request.json`, `2026-06-12T15-04-05-response.json`
    - Contains: complete messages array, tool definitions, provider/model info
    - Auto-cleanup: keeps last 10 files
    - Use `cat .data/debug-calls/*.json | jq` to inspect what was sent to AI
+
+**Logging levels in agent.toml:**
+- `logging = false` - No file logging (stdout only)
+- `logging = true` - Basic operational logs (default)
+- `logging = "debug"` - Full debug logging + auto-enables debug_calls JSON dumps
 
 **internal/debug package**: LogRequest(), LogResponse(), LogToolExecution() for structured logging
 
@@ -582,11 +598,12 @@ Two complementary debugging mechanisms:
 - **Orchestrator at top-level** - `internal/orchestration.go` for shorter imports and architectural clarity
 - **SessionStore in domain** - Kept in `session/` package to avoid circular imports (domain types stay with interface)
 - **Merged identities & contacts** - Single `.data/contacts.toml` file with both user-edited identities and auto-generated contacts
+- **Access control** - Three-tier precedence (Identity.allowed > Contact.allowed > allow_by_default) enforced at orchestrator level
 - **Outbound dispatcher** - Cross-interface message delivery via Sender interface registration
 - **Command handling in interfaces** - Each interface detects commands, calls syscommands helpers, formats output for their UX (no centralized routing)
 - **No CLI framework** - Simple stdlib arg parsing (KISS principle), gohelp-luar for documentation only
 - **Modular providers** - Each provider in separate file (openai.go, openrouter.go) for single responsibility
-- **Daemon architecture** - Single process, config-driven interfaces (agent.toml: `interfaces = ["cli", "telegram"]`)
+- **Daemon architecture** - Single process, config-driven interfaces (access.toml: `interfaces = ["cli", "telegram"]`)
 - **Unix socket for CLI** - JSON protocol, session isolation via user ID + session ID
 - **Shell-based tools** - Execute via `sh -c` with {{var}} substitution
 - **JSONL not SQLite** - Simple append-only files for sessions (easier debugging, no DB overhead)
@@ -601,6 +618,8 @@ Two complementary debugging mechanisms:
 - **Tool whitelisting** - Runtime --tools flag filters available tools without config changes
 - **Two-phase template resolution** - Directives first ({{file:}}, {{exec:}}), then variables ({{var}}, {{$var}}) for clean separation
 - **System variables** - Built-in runtime context ({{$agent}}, {{$user}}, {{$timestamp}}, etc.) with $ prefix to distinguish from user vars
+- **Unified logging config** - Single `logging` field (false | true | "debug") replaces separate logging + debug_calls fields
+- **Semantic config sections** - Grouped settings under [agent], [access], [memory], [audio] for clarity
 
 ### Adding New Providers
 
