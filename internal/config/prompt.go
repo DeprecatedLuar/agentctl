@@ -12,7 +12,7 @@ import (
 
 const (
 	// File names
-	promptFile = "prompts/default"
+	promptFile = "prompts/default.prompt"
 
 	// Section markers
 	inputSectionPrefix  = "[>>"
@@ -42,7 +42,7 @@ func Parse(agentPath string, ctx resolution.Context) (*ParsedPrompt, []Validatio
 	file, err := os.Open(promptPath)
 	if err != nil {
 		issues = append(issues, ValidationIssue{
-			Type:    IssueWarning,
+			Type:    IssueError,
 			Message: fmt.Sprintf("prompt: %v", err),
 		})
 		return nil, issues

@@ -21,7 +21,7 @@ const (
 	// File names
 	initAgentConfig   = "agent.toml"
 	contactsFile      = "contacts.toml"
-	defaultPromptFile = "default"
+	defaultPromptFile = "default.prompt"
 	initEnvFile       = ".env"
 	initGitignoreFile = ".gitignore"
 	toolExampleFile   = "example.toml"
