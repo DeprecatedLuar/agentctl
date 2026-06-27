@@ -44,10 +44,11 @@ type ValidationIssue struct {
 }
 
 type AgentConfig struct {
-	Agent  AgentSection `toml:"agent"`
-	Access AccessConfig `toml:"access"`
-	Memory MemoryConfig `toml:"memory"`
-	Audio  *AudioConfig `toml:"audio"` // Optional
+	Agent       AgentSection      `toml:"agent"`
+	Access      AccessConfig      `toml:"access"`
+	Memory      MemoryConfig      `toml:"memory"`
+	Audio       *AudioConfig      `toml:"audio"`       // Optional
+	Environment map[string]string `toml:"environment"` // Optional
 }
 
 type AgentSection struct {

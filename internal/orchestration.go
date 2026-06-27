@@ -97,6 +97,7 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 		iface,
 		agentCfg.Agent.Model,
 		agentCfg.Agent.Provider,
+		agentCfg.Environment,
 	)
 	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 
@@ -336,6 +337,7 @@ func (o *Orchestrator) handleMessageInternalWithTools(userID, sessionID, iface, 
 		iface,
 		agentCfg.Agent.Model,
 		agentCfg.Agent.Provider,
+		agentCfg.Environment,
 	)
 	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 

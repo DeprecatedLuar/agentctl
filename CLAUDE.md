@@ -257,7 +257,7 @@ agent-folder/
 **Config Paths:**
 - Agent config: `config/agent.toml`
 - Identities & Contacts: `.data/contacts.toml` (merged file, created on first message)
-- Prompt: `prompts/default`
+- Prompt: `prompts/default.prompt`
 - Registry: `~/.local/share/agentctl/agents`
 
 ### Prompt File Format

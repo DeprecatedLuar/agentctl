@@ -43,8 +43,8 @@ func validateDirectiveSyntax(content string) error {
 //   - {{exec:path}}: Executes script, returns stdout (or "exit N: stderr" on failure)
 //
 // Returns processed content and error if directive processing fails.
-func processDirectives(content, agentPath string) (string, error) {
-	return processDirectivesWithDepth(content, agentPath, 0)
+func processDirectives(content, agentPath string, configEnv map[string]string) (string, error) {
+	return processDirectivesWithDepth(content, agentPath, configEnv, 0)
 }
 
 // validateSyntaxWithDepth validates directive syntax with depth limit
@@ -129,7 +129,7 @@ func validateSyntaxWithDepth(content string, depth int) error {
 }
 
 // processDirectivesWithDepth handles directives with recursion depth limit
-func processDirectivesWithDepth(content, agentPath string, depth int) (string, error) {
+func processDirectivesWithDepth(content, agentPath string, configEnv map[string]string, depth int) (string, error) {
 	if depth > maxDepth {
 		return "", fmt.Errorf("directive nesting too deep (max %d levels)", maxDepth)
 	}
@@ -215,7 +215,7 @@ func processDirectivesWithDepth(content, agentPath string, depth int) (string, e
 
 		case "exec":
 			// Execute script and capture output
-			replacement, err = execScript(directivePath, agentPath)
+			replacement, err = execScript(directivePath, agentPath, configEnv)
 			if err != nil {
 				return "", fmt.Errorf("{{exec:%s}}: %w", directivePath, err)
 			}
@@ -235,7 +235,7 @@ func processDirectivesWithDepth(content, agentPath string, depth int) (string, e
 	// If we processed any directives, recursively process the result
 	// to handle nested directives (e.g., {{file:x.md}} where x.md contains {{exec:y.sh}})
 	if hasDirectives {
-		return processDirectivesWithDepth(finalResult, agentPath, depth+1)
+		return processDirectivesWithDepth(finalResult, agentPath, configEnv, depth+1)
 	}
 
 	return finalResult, nil
@@ -286,9 +286,10 @@ func loadFile(path, agentPath string) (string, error) {
 }
 
 // execScript executes a script and returns stdout or formatted error
-func execScript(path, agentPath string) (string, error) {
+func execScript(path, agentPath string, configEnv map[string]string) (string, error) {
 	// Execute command - shell handles all path resolution (./script.sh, /abs/path, commands in PATH, ~/home)
-	stdout, stderr, exitCode, execErr := shell.Execute(path, agentPath)
+	// For {{exec:}} directives, working dir and agent folder are the same
+	stdout, stderr, exitCode, execErr := shell.Execute(path, agentPath, agentPath, configEnv)
 
 	if execErr != nil {
 		// Log the failure for debugging (error text is injected into content)

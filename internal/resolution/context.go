@@ -8,22 +8,23 @@ import (
 // Context holds all runtime information for template processing.
 // Used for both directive processing and variable substitution.
 type Context struct {
-	AgentPath string    // Absolute path to agent folder
-	AgentName string    // Base name of agent folder
-	UserID    string    // User identity ID (e.g., "alice" or "cli:luar")
-	Username  string    // Display name for user
-	SessionID string    // Current session ID
-	Interface string    // Interface name ("cli", "telegram", etc.)
-	Model     string    // Model name (e.g., "gpt-4o")
-	Provider  string    // Provider name (e.g., "openai")
-	Timestamp time.Time // Current timestamp
+	AgentPath string            // Absolute path to agent folder
+	AgentName string            // Base name of agent folder
+	UserID    string            // User identity ID (e.g., "alice" or "cli:luar")
+	Username  string            // Display name for user
+	SessionID string            // Current session ID
+	Interface string            // Interface name ("cli", "telegram", etc.)
+	Model     string            // Model name (e.g., "gpt-4o")
+	Provider  string            // Provider name (e.g., "openai")
+	Timestamp time.Time         // Current timestamp
 	UserVars  map[string]string // User-defined variables (future use)
+	ConfigEnv map[string]string // Config environment from [environment] section
 }
 
 // NewContext creates a runtime Context with all fields populated.
 // Used during message processing when full runtime information is available.
 // Empty strings are valid for optional fields (username can be empty if not available).
-func NewContext(agentPath, userID, username, sessionID, iface, model, provider string) Context {
+func NewContext(agentPath, userID, username, sessionID, iface, model, provider string, configEnv map[string]string) Context {
 	return Context{
 		AgentPath: agentPath,
 		AgentName: filepath.Base(agentPath),
@@ -35,6 +36,7 @@ func NewContext(agentPath, userID, username, sessionID, iface, model, provider s
 		Provider:  provider,
 		Timestamp: time.Now(),
 		UserVars:  nil, // Future use
+		ConfigEnv: configEnv,
 	}
 }
 

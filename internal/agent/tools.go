@@ -21,7 +21,7 @@ const (
 )
 
 // ExecuteTool runs a tool with the given arguments
-func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, logger *slog.Logger, verbose bool, debug bool) string {
+func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, configEnv map[string]string, logger *slog.Logger, verbose bool, debug bool) string {
 	// Build substitution map: Process return overrides with directive support
 	substitutions := make(map[string]string)
 
@@ -43,6 +43,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 			ctx := resolution.Context{
 				AgentPath: agentFolder,
 				AgentName: filepath.Base(agentFolder),
+				ConfigEnv: configEnv,
 			}
 
 			// Process directives in return value ({{file:}} and {{exec:}})
@@ -94,8 +95,8 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		workDir = filepath.Dir(tool.Path)
 	}
 
-	// Execute via shell
-	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir)
+	// Execute via shell (workDir for command execution, agentFolder for .env loading)
+	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir, agentFolder, configEnv)
 
 	// Format result
 	result := stdout

@@ -9,7 +9,7 @@ package resolution
 // Returns processed content and error if any step fails.
 func Process(content string, ctx Context) (string, error) {
 	// Step 1: Process directives (may contain nested directives)
-	processed, err := processDirectives(content, ctx.AgentPath)
+	processed, err := processDirectives(content, ctx.AgentPath, ctx.ConfigEnv)
 	if err != nil {
 		return "", err
 	}

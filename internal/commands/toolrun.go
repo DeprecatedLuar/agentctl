@@ -66,6 +66,17 @@ func HandleToolRun(args []string) error {
 		return err
 	}
 
+	// Load agent config to get environment
+	agentCfg, agentIssues := config.LoadAgent(absPath)
+	if agentCfg == nil {
+		for _, issue := range agentIssues {
+			if issue.Type == config.IssueError {
+				return fmt.Errorf("agent config error: %s", issue.Message)
+			}
+		}
+		return fmt.Errorf("failed to load agent config")
+	}
+
 	// Load the specific tool
 	tools, issues := config.LoadTools(absPath, []string{toolName})
 
@@ -87,7 +98,7 @@ func HandleToolRun(args []string) error {
 
 	// Execute the tool (with debug enabled to show command)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	result := agent.ExecuteTool(&tool, params, absPath, logger, false, true)
+	result := agent.ExecuteTool(&tool, params, absPath, agentCfg.Environment, logger, false, true)
 
 	// Print result
 	fmt.Print(result)

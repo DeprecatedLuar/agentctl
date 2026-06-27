@@ -8,7 +8,7 @@ var AgentToml string
 //go:embed files/.data/contacts.toml
 var ContactsToml string
 
-//go:embed files/prompts/default
+//go:embed files/prompts/default.prompt
 var Prompt string
 
 //go:embed files/tool-example.toml

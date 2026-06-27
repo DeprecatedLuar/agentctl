@@ -121,7 +121,7 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 				return "", fmt.Errorf("unknown tool requested: %s", tc.Name)
 			}
 
-			result := ExecuteTool(tool, tc.Args, agentFolder, logger, verbose, debug)
+			result := ExecuteTool(tool, tc.Args, agentFolder, cfg.Environment, logger, verbose, debug)
 
 			// Add tool result as a message
 			// OpenAI expects tool results as role="tool" with tool_call_id
