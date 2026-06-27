@@ -59,6 +59,7 @@ func buildSystemVariables(ctx Context) map[string]string {
 
 	// Always set keys, even if values are empty (during validation)
 	vars["$agent"] = ctx.AgentName
+	vars["$agentpath"] = ctx.AgentPath
 	vars["$user"] = ctx.UserID
 	vars["$username"] = ctx.Username
 	vars["$session"] = ctx.SessionID

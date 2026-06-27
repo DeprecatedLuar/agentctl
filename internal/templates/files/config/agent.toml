@@ -14,9 +14,13 @@ max_messages = 0
 # [environment]
 # Non-secret config defaults (committed to git)
 # Override in .env for local dev or secrets
-# Example:
+# Supports directives {{file:}}, {{exec:}} and variables {{$agent}}, {{$agentpath}}
+# Examples:
 # API_ENDPOINT = "https://api.production.com"
 # TIMEOUT = "30"
+# API_KEY = "{{file:.secrets/key}}"
+# BUILD_TIME = "{{exec:date +%s}}"
+# DATA_PATH = "{{$agentpath}}/data"
 
 # [audio]
 # provider = "whisper"  # or http://localhost:9000/v1 for local whisper server

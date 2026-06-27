@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/joho/godotenv"
 )
 
@@ -113,6 +114,27 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 			Message: fmt.Sprintf("%s: failed to parse TOML: %v", agentConfigFile, err),
 		})
 		return nil, issues
+	}
+
+	// Process [environment] values through directive/variable resolution
+	if cfg.Environment != nil {
+		ctx := resolution.Context{
+			AgentPath: agentPath,
+			AgentName: filepath.Base(agentPath),
+			// All other fields empty (no user/session context at config load)
+		}
+
+		for key, value := range cfg.Environment {
+			processed, err := resolution.Process(value, ctx)
+			if err != nil {
+				issues = append(issues, ValidationIssue{
+					Type:    IssueError,
+					Message: fmt.Sprintf("%s: [environment] %s: %v", agentConfigFile, key, err),
+				})
+				continue
+			}
+			cfg.Environment[key] = processed
+		}
 	}
 
 	// Validate required fields
