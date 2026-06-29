@@ -312,3 +312,105 @@ func TestProcess_UserVarsAndSystemVars(t *testing.T) {
 		t.Errorf("Process() = %q, want %q", result, expected)
 	}
 }
+
+func TestProcess_NestedDirectives(t *testing.T) {
+	// Create temp directory for test files
+	tmpDir := t.TempDir()
+
+	// Create per-user directory structure
+	aliceDir := filepath.Join(tmpDir, "users", "alice")
+	bobDir := filepath.Join(tmpDir, "users", "bob")
+	if err := os.MkdirAll(aliceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(bobDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create per-user files
+	aliceFile := filepath.Join(aliceDir, "notes.txt")
+	bobFile := filepath.Join(bobDir, "notes.txt")
+	if err := os.WriteFile(aliceFile, []byte("Alice's notes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bobFile, []byte("Bob's notes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create per-user scripts
+	scriptsDir := filepath.Join(tmpDir, "scripts")
+	aliceScriptDir := filepath.Join(scriptsDir, "alice")
+	bobScriptDir := filepath.Join(scriptsDir, "bob")
+	if err := os.MkdirAll(aliceScriptDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(bobScriptDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	aliceScript := filepath.Join(aliceScriptDir, "greet.sh")
+	bobScript := filepath.Join(bobScriptDir, "greet.sh")
+	if err := os.WriteFile(aliceScript, []byte("#!/bin/sh\necho 'Hello, Alice!'"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bobScript, []byte("#!/bin/sh\necho 'Hello, Bob!'"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		userID   string
+		input    string
+		expected string
+	}{
+		{
+			name:     "file directive with variable in path - alice",
+			userID:   "alice",
+			input:    "Notes: {{file:users/{{$user}}/notes.txt}}",
+			expected: "Notes: Alice's notes",
+		},
+		{
+			name:     "file directive with variable in path - bob",
+			userID:   "bob",
+			input:    "Notes: {{file:users/{{$user}}/notes.txt}}",
+			expected: "Notes: Bob's notes",
+		},
+		{
+			name:     "exec directive with variable in path - alice",
+			userID:   "alice",
+			input:    "Greeting: {{exec:scripts/{{$user}}/greet.sh}}",
+			expected: "Greeting: Hello, Alice!\n", // echo adds newline
+		},
+		{
+			name:     "exec directive with variable in path - bob",
+			userID:   "bob",
+			input:    "Greeting: {{exec:scripts/{{$user}}/greet.sh}}",
+			expected: "Greeting: Hello, Bob!\n", // echo adds newline
+		},
+		{
+			name:     "multiple nested directives",
+			userID:   "alice",
+			input:    "{{file:users/{{$user}}/notes.txt}} | {{exec:scripts/{{$user}}/greet.sh}}",
+			expected: "Alice's notes | Hello, Alice!\n", // echo adds newline
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := Context{
+				AgentPath: tmpDir,
+				AgentName: "test-agent",
+				UserID:    tt.userID,
+				Timestamp: time.Now(),
+			}
+
+			result, err := Process(tt.input, ctx)
+			if err != nil {
+				t.Fatalf("Process() error = %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("Process() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}

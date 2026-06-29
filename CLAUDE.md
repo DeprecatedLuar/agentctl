@@ -203,10 +203,14 @@ The system follows hexagonal architecture with clear separation between I/O adap
 **10. internal/resolution** - Template resolution with directives and variables
 - `resolution.go`: Process() main pipeline (directives → variables), ValidateSyntax() for startup checks
 - `directives.go`: processDirectives() with recursive expansion (10-level depth limit), binary file detection
+  - `findMatchingCloseBrace()` properly parses nested `{{}}` for variable substitution in directive paths
+  - Validation mode detection: skips variable substitution when UserID is empty (daemon startup)
 - `variables.go`: substituteVariables() for {{var}} and {{$var}} placeholders
+  - `findMatchingCloseBraceVar()` handles nested braces in variable contexts
 - `context.go`: Context struct with runtime info (agent path, user, session, model, timestamp)
 - Two-phase processing:
   1. Directives ({{file:path}}, {{exec:command}}) - loads/executes content
+     - Variables in directive arguments are substituted first (enables `{{file:path/{{$user}}/file.md}}`)
   2. Variables ({{var}}, {{$var}}) - substitutes runtime values
 - Used by prompt parser and tool parameter return values
 - System variables: {{$agent}}, {{$user}}, {{$username}}, {{$session}}, {{$interface}}, {{$timestamp}}, {{$date}}, {{$model}}, {{$provider}}
@@ -277,6 +281,10 @@ agent-folder/
    - Recursive expansion up to 10 levels deep
    - Unknown directives (e.g., `{{unknown:path}}`) cause parse errors (fail fast)
    - Directives can appear inline: `Current time: {{exec:date}} - processing...`
+   - **Nested directives** - Variables in directive paths are substituted before processing:
+     - `{{file:path/{{$user}}/notes.md}}` - `{{$user}}` resolves first, then file loads
+     - `{{exec:scripts/{{$date}}/run.sh}}` - enables per-user/date/context file organization
+     - During validation mode (daemon startup), directives with variables are preserved as-is
 2. **Variables** - Happens after directives, substitutes runtime values
    - Detection rule: `{{...}}` with `:` = directive, without `:` = variable
    - System variables take precedence over user variables
@@ -292,6 +300,9 @@ Agent: {{$agent}}
 User: {{$username}} (ID: {{$user}})
 Interface: {{$interface}}
 Model: {{$model}} ({{$provider}})
+
+# Nested directive example - per-user memory
+User Memory: {{file:.data/memory/{{$user}}/core.md}}
 
 [>>user]
 {{input}}

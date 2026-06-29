@@ -3,13 +3,15 @@ package resolution
 // Process is the main pipeline for template processing.
 // Executes in order:
 //  1. Process directives ({{file:path}}, {{exec:command}}) with recursive expansion
+//     - Variables in directive arguments are substituted before processing
 //  2. Substitute variables ({{var}}, {{$var}})
 //
 // Context provides runtime values for system variables and directive processing.
 // Returns processed content and error if any step fails.
 func Process(content string, ctx Context) (string, error) {
 	// Step 1: Process directives (may contain nested directives)
-	processed, err := processDirectives(content, ctx.AgentPath, ctx.ConfigEnv)
+	// Variables in directive paths are substituted during this phase
+	processed, err := processDirectives(content, ctx)
 	if err != nil {
 		return "", err
 	}

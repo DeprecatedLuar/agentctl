@@ -37,14 +37,15 @@ func validateDirectiveSyntax(content string) error {
 
 // processDirectives processes {{file:path}} and {{exec:path}} directives recursively.
 // Supports backslash escaping: \{{...}} becomes literal {{...}}.
+// Supports variable substitution in directive arguments: {{file:path/{{$user}}/file.md}}
 //
 // Directive types:
 //   - {{file:path}}: Loads file content (relative to agentPath)
 //   - {{exec:path}}: Executes script, returns stdout (or "exit N: stderr" on failure)
 //
 // Returns processed content and error if directive processing fails.
-func processDirectives(content, agentPath string, configEnv map[string]string) (string, error) {
-	return processDirectivesWithDepth(content, agentPath, configEnv, 0)
+func processDirectives(content string, ctx Context) (string, error) {
+	return processDirectivesWithDepth(content, ctx, 0)
 }
 
 // validateSyntaxWithDepth validates directive syntax with depth limit
@@ -71,8 +72,8 @@ func validateSyntaxWithDepth(content string, depth int) error {
 			continue
 		}
 
-		// Find closing }}
-		endOffset := strings.Index(content[start+len(prefix):], suffix)
+		// Find matching closing }} (handle nested {{...}})
+		endOffset := findMatchingCloseBrace(content[start+len(prefix):])
 		if endOffset == -1 {
 			break
 		}
@@ -128,10 +129,54 @@ func validateSyntaxWithDepth(content string, depth int) error {
 	return nil
 }
 
+// findMatchingCloseBrace finds the position of the matching }} for nested {{...}}
+// Returns the offset from the start of the search string, or -1 if not found
+func findMatchingCloseBrace(content string) int {
+	depth := 1 // We already consumed one {{
+	i := 0
+
+	for i < len(content)-1 {
+		// Check for opening {{
+		if i < len(content)-1 && content[i:i+2] == prefix {
+			depth++
+			i += 2
+			continue
+		}
+
+		// Check for closing }}
+		if i < len(content)-1 && content[i:i+2] == suffix {
+			depth--
+			if depth == 0 {
+				return i // Found matching close
+			}
+			i += 2
+			continue
+		}
+
+		i++
+	}
+
+	return -1 // No matching close found
+}
+
 // processDirectivesWithDepth handles directives with recursion depth limit
-func processDirectivesWithDepth(content, agentPath string, configEnv map[string]string, depth int) (string, error) {
+func processDirectivesWithDepth(content string, ctx Context, depth int) (string, error) {
 	if depth > maxDepth {
 		return "", fmt.Errorf("directive nesting too deep (max %d levels)", maxDepth)
+	}
+
+	// Build system variables for substitution in directive arguments
+	// Skip variable substitution if in validation mode (empty UserID means minimal context)
+	isValidationMode := ctx.UserID == ""
+	var sysVars map[string]string
+	var userVars map[string]string
+
+	if !isValidationMode {
+		sysVars = buildSystemVariables(ctx)
+		userVars = ctx.UserVars
+		if userVars == nil {
+			userVars = make(map[string]string)
+		}
 	}
 
 	var result strings.Builder
@@ -158,8 +203,8 @@ func processDirectivesWithDepth(content, agentPath string, configEnv map[string]
 			continue
 		}
 
-		// Find closing }}
-		endOffset := strings.Index(content[start+len(prefix):], suffix)
+		// Find matching closing }} (handle nested {{...}})
+		endOffset := findMatchingCloseBrace(content[start+len(prefix):])
 		if endOffset == -1 {
 			// No closing }} - append rest and stop
 			result.WriteString(content[pos:])
@@ -185,9 +230,28 @@ func processDirectivesWithDepth(content, agentPath string, configEnv map[string]
 		}
 
 		// This is a directive - extract type and path
-		hasDirectives = true
 		directiveType := inner[:colonIdx]
 		directivePath := inner[colonIdx+1:]
+
+		// Substitute variables in directive path (e.g., {{file:path/{{$user}}/file.md}})
+		// Skip during validation mode to preserve variables
+		if !isValidationMode {
+			directivePath = substituteVariables(directivePath, sysVars, userVars)
+		}
+
+		// Skip directives with variables during validation mode
+		if isValidationMode && strings.Contains(directivePath, "{{") {
+			// Can't process directives with runtime variables during validation
+			// Keep as-is and continue (don't mark as processed to avoid recursion)
+			result.WriteString(prefix)
+			result.WriteString(inner)
+			result.WriteString(suffix)
+			pos = end + len(suffix)
+			continue
+		}
+
+		// Mark that we're processing actual directives
+		hasDirectives = true
 
 		// Validate path syntax (strict: no spaces, no empty paths)
 		if len(directivePath) == 0 {
@@ -208,14 +272,14 @@ func processDirectivesWithDepth(content, agentPath string, configEnv map[string]
 		switch directiveType {
 		case "file":
 			// Load file content
-			replacement, err = loadFile(directivePath, agentPath)
+			replacement, err = loadFile(directivePath, ctx.AgentPath)
 			if err != nil {
 				return "", fmt.Errorf("{{file:%s}}: %w", directivePath, err)
 			}
 
 		case "exec":
 			// Execute script and capture output
-			replacement, err = execScript(directivePath, agentPath, configEnv)
+			replacement, err = execScript(directivePath, ctx.AgentPath, ctx.ConfigEnv)
 			if err != nil {
 				return "", fmt.Errorf("{{exec:%s}}: %w", directivePath, err)
 			}
@@ -235,7 +299,7 @@ func processDirectivesWithDepth(content, agentPath string, configEnv map[string]
 	// If we processed any directives, recursively process the result
 	// to handle nested directives (e.g., {{file:x.md}} where x.md contains {{exec:y.sh}})
 	if hasDirectives {
-		return processDirectivesWithDepth(finalResult, agentPath, configEnv, depth+1)
+		return processDirectivesWithDepth(finalResult, ctx, depth+1)
 	}
 
 	return finalResult, nil
