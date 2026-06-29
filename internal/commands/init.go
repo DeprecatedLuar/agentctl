@@ -90,6 +90,17 @@ func HandleInit(args []string) error {
 		createdFiles = append(createdFiles, name)
 	}
 
+	// Copy .prerun.sh with executable permissions
+	prerunPath := filepath.Join(absPath, ".prerun.sh")
+	if _, err := os.Stat(prerunPath); err == nil {
+		skippedFiles = append(skippedFiles, ".prerun.sh")
+	} else {
+		if err := os.WriteFile(prerunPath, []byte(templates.PrerunSh), 0755); err != nil {
+			return fmt.Errorf("failed to write .prerun.sh: %w", err)
+		}
+		createdFiles = append(createdFiles, ".prerun.sh")
+	}
+
 	// Register agent in registry
 	if err := registry.Register(absPath); err != nil {
 		return fmt.Errorf("failed to register agent: %w", err)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/hooks"
 	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
@@ -79,6 +80,12 @@ func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content s
 // handleMessageInternal contains the core message handling logic
 // Called by both HandleMessage (after resolution) and HandleExplicitMessage (direct)
 func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content string) (string, error) {
+
+	// Execute prerun hook before config load
+	if err := hooks.ExecutePrerun(o.AgentFolder, nil, o.Logger); err != nil {
+		// Non-fatal, but log if something catastrophic happened
+		o.Logger.Error("prerun hook error", "error", err)
+	}
 
 	// Load config, tools, and prompt fresh on each request (hot reload)
 	agentCfg, agentIssues := config.LoadAgent(o.AgentFolder)
@@ -320,6 +327,12 @@ func (o *Orchestrator) deliverToChannels(currentUserID string, channels, channel
 
 // handleMessageInternalWithTools is like handleMessageInternal but supports tool whitelisting
 func (o *Orchestrator) handleMessageInternalWithTools(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
+	// Execute prerun hook before config load
+	if err := hooks.ExecutePrerun(o.AgentFolder, nil, o.Logger); err != nil {
+		// Non-fatal, but log if something catastrophic happened
+		o.Logger.Error("prerun hook error", "error", err)
+	}
+
 	// Load config, tools, and prompt fresh on each request (hot reload)
 	agentCfg, agentIssues := config.LoadAgent(o.AgentFolder)
 	if agentCfg == nil {

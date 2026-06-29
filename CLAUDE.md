@@ -115,8 +115,14 @@ The system follows hexagonal architecture with clear separation between I/O adap
 
 **4. internal/shell** - Pure shell execution utility
 - `execute.go`: Execute(cmd, dir) returns stdout, stderr, exitCode, err
-- Used by both ExecuteTool and prompt directive processor
+- Used by ExecuteTool, prompt directive processor, and prerun hooks
 - No logging or formatting - pure function
+
+**4a. internal/hooks** - Lifecycle hook execution
+- `prerun.go`: ExecutePrerun() runs .prerun.sh before each agent message
+- Non-fatal execution: logs errors but allows agent to continue
+- Checks `.prerun.sh` first (hidden, preferred), fallback to `prerun.sh`
+- Called by orchestrator before config loading
 
 **5. internal/** - Application layer (ports & orchestration)
 - `ports.go`: Input port interfaces (MessageHandler, OutboundDispatcher, Interface)
@@ -213,7 +219,7 @@ The system follows hexagonal architecture with clear separation between I/O adap
      - Variables in directive arguments are substituted first (enables `{{file:path/{{$user}}/file.md}}`)
   2. Variables ({{var}}, {{$var}}) - substitutes runtime values
 - Used by prompt parser and tool parameter return values
-- System variables: {{$agent}}, {{$user}}, {{$username}}, {{$session}}, {{$interface}}, {{$timestamp}}, {{$date}}, {{$model}}, {{$provider}}
+- System variables: {{$agent}}, {{$agentpath}}, {{$user}}, {{$username}}, {{$session}}, {{$interface}}, {{$timestamp}}, {{$date}}, {{$model}}, {{$provider}}
 - User variables: {{var}} (future use, currently empty)
 - Supports relative paths (agent folder), ~/ expansion, absolute paths
 
@@ -238,12 +244,16 @@ The system follows hexagonal architecture with clear separation between I/O adap
 
 ```
 agent-folder/
+  .prerun.sh            # Optional: runs before each agent execution (hidden, preferred)
+  prerun.sh             # Optional: fallback if .prerun.sh doesn't exist
   config/
     agent.toml          # [agent], [access], [memory], [audio] sections
   prompts/
     default             # [>role] static, [>>role] input sections
   tools/
     *.toml              # Tool definitions (example.toml excluded from auto-load)
+    memory/
+      .prerun.sh        # Optional: tool-specific setup (sourced by root .prerun.sh)
   .env                  # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
   .data/
     contacts.toml       # Merged file: [[identity]] + [[contact]] with allowed field
@@ -288,7 +298,7 @@ agent-folder/
 2. **Variables** - Happens after directives, substitutes runtime values
    - Detection rule: `{{...}}` with `:` = directive, without `:` = variable
    - System variables take precedence over user variables
-   - Built-in system variables ($ prefix): `{{$agent}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$interface}}`, `{{$timestamp}}`, `{{$date}}`, `{{$model}}`, `{{$provider}}`
+   - Built-in system variables ($ prefix): `{{$agent}}`, `{{$agentpath}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$interface}}`, `{{$timestamp}}`, `{{$date}}`, `{{$model}}`, `{{$provider}}`
    - User variables (no prefix): `{{var}}` (future use, currently empty)
 
 **Example:**
@@ -366,6 +376,43 @@ return = "production"  # Literal hardcoded value
 - Directives processed at tool execution time (supports hot-reload)
 
 **Important:** Parameter sections are directly `[paramName]`, NOT nested under `[parameters]`. Tool parser extracts all sections except `command` and `description` as parameters.
+
+### Prerun Hook System
+
+The `.prerun.sh` script runs before each agent execution for setup and validation:
+
+**Execution:**
+- Runs before config/tools/prompt loading in orchestrator
+- Checks `.prerun.sh` first (hidden, preferred), falls back to `prerun.sh`
+- Non-fatal: errors logged at WARN level, agent continues anyway
+- Access to `.env` variables via shell environment
+- Runs from agent root directory
+
+**Common use cases:**
+```bash
+#!/usr/bin/env bash
+# Auto-load prerun scripts from individual tools (e.g., tools/memory/.prerun.sh)
+for dir in tools/*/; do
+    [ -f "${dir}.prerun.sh" ] && source "${dir}.prerun.sh" && continue
+    [ -f "${dir}prerun.sh" ] && source "${dir}prerun.sh"
+done
+
+# Create required directories
+mkdir -p .data/custom
+
+# Validate file existence
+[ -f .data/required-file ] || touch .data/required-file
+```
+
+**Tool-specific prerun (e.g., `tools/memory/.prerun.sh`):**
+```bash
+#!/usr/bin/env bash
+mkdir -p .data/tools/memory
+```
+
+**Precedence:** If both `.prerun.sh` and `prerun.sh` exist, only `.prerun.sh` executes (hidden takes priority).
+
+**Hot reload:** Changes to `.prerun.sh` take effect on next message (matches config hot-reload behavior).
 
 ### Agentic Loop
 
@@ -516,7 +563,7 @@ Interface → internal.MessageHandler.HandleMessage(iface, contactID, displayNam
               ↓
          internal.Orchestrator
               ↓
-         session.Resolve() → Load config/tools/prompt → session.Load()
+         hooks.ExecutePrerun() → session.Resolve() → Load config/tools/prompt → session.Load()
               ↓
          agent.Run() → provider.SendMessages() → tool execution
               ↓
@@ -531,7 +578,7 @@ CLI → session.ResolveExplicit() → internal.MessageHandler.HandleExplicitMess
                                       ↓
                                  internal.Orchestrator
                                       ↓
-                                 (skip resolution) → Load config/tools/prompt → session.Load()
+                                 hooks.ExecutePrerun() → (skip resolution) → Load config/tools/prompt → session.Load()
                                       ↓
                                  agent.Run() → provider.SendMessages() → tool execution
                                       ↓
@@ -546,7 +593,7 @@ CLI → internal.MessageHandler.HandleMessageWithOptions(MessageOptions)
          ↓
     internal.Orchestrator
          ↓
-    session.Resolve() or ResolveExplicit() → filterTools() if --tools
+    hooks.ExecutePrerun() → session.Resolve() or ResolveExplicit() → filterTools() if --tools
          ↓
     agent.Run() with whitelisted tools
          ↓
@@ -631,6 +678,7 @@ Two complementary debugging mechanisms:
 - **System variables** - Built-in runtime context ({{$agent}}, {{$user}}, {{$timestamp}}, etc.) with $ prefix to distinguish from user vars
 - **Unified logging config** - Single `logging` field (false | true | "debug") replaces separate logging + debug_calls fields
 - **Semantic config sections** - Grouped settings under [agent], [access], [memory], [audio] for clarity
+- **Prerun hooks** - Per-message .prerun.sh execution for self-healing setup (non-fatal, precedence: .prerun.sh > prerun.sh)
 
 ### Adding New Providers
 

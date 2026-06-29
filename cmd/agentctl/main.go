@@ -79,7 +79,7 @@ func printHelp(args []string) {
 			gohelp.Item("toolrun <name>", "Execute a tool manually with parameters", "agentctl toolrun create_schedule --name=test --cron=\"0 * * * *\" --message=\"Test\""),
 			gohelp.Item("getagent", "Print current agent name", "agentctl getagent"),
 			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
-			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, interfaces, memory)"),
+			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, interfaces, sessions, prerun)"),
 		).
 		Section("Chat Flags",
 			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
@@ -167,10 +167,12 @@ func printHelp(args []string) {
 		Section("Directives (processed at parse time)",
 			gohelp.Item("{{file:path}}", "Load file content (supports ./, ~/, absolute paths)"),
 			gohelp.Item("{{exec:cmd}}", "Execute command and inject stdout"),
+			gohelp.Item("Nested directives", "Variables in paths: {{file:.data/memory/{{$user}}/notes.md}}"),
 		).
 		Section("System Variables",
 			gohelp.Item("{{$input}}", "User's message (input section only)"),
 			gohelp.Item("{{$agent}}", "Agent name"),
+			gohelp.Item("{{$agentpath}}", "Agent folder absolute path"),
 			gohelp.Item("{{$user}}", "User identity ID"),
 			gohelp.Item("{{$username}}", "Display name"),
 			gohelp.Item("{{$session}}", "Session ID"),
@@ -180,7 +182,7 @@ func printHelp(args []string) {
 			gohelp.Item("{{$model}}", "Model name"),
 			gohelp.Item("{{$provider}}", "Provider name"),
 		).
-		Text("The [>>role] section is required for the agent to receive messages. Static sections build conversation context. Directives are recursive (10-level depth limit).")
+		Text("The [>>role] section is required for the agent to receive messages. Static sections build conversation context. Directives are recursive (10-level depth limit). Variables in directive paths are substituted before processing, enabling per-user files and dynamic paths.")
 
 	interfaces := gohelp.NewPage("interfaces", "interface configuration").
 		Usage("interfaces = [\"cli\", \"telegram\"]").
@@ -197,21 +199,59 @@ func printHelp(args []string) {
 		).
 		Text("All interfaces share the same agent runtime and memory. Enable both for multi-channel access.")
 
-	memory := gohelp.NewPage("memory", "session isolation and history").
+	sessions := gohelp.NewPage("sessions", "session management and history").
 		Usage("memory.max_messages = 0").
 		Section("Storage",
-			gohelp.Item("Format", "JSONL files in .data/memory/{sessionKey}.jsonl"),
-			gohelp.Item("Fields", "Each line: {\"role\",\"content\",\"ts\"} (timestamp)"),
+			gohelp.Item("Format", "JSONL files in .data/sessions/{userID}/{sessionID}.jsonl"),
+			gohelp.Item("Session ID", "Format: YYYYMMDD_HHMMSS_<6-hex> (auto-generated)"),
+			gohelp.Item("Metadata", "First line contains session metadata (title, creation time)"),
 			gohelp.Item("Persistence", "History survives daemon restarts"),
 		).
-		Section("Session Isolation",
-			gohelp.Item("CLI", "Use --session flag to specify session key (default: \"default\")"),
-			gohelp.Item("Telegram", "Session key is user ID (automatic per-user isolation)"),
+		Section("Identity Linking",
+			gohelp.Item("Contacts", "Auto-logged in .data/contacts.toml on first message"),
+			gohelp.Item("Identities", "Link multiple contacts to one user (e.g., CLI + Telegram)"),
+			gohelp.Item("Format", "Contact: interface:platformID (e.g., cli:alice, telegram:123456789)"),
+			gohelp.Item("Sessions", "All linked contacts share the same session history"),
 		).
-		Section("Limits",
-			gohelp.Item("max_messages", "Controls history size (0 = unlimited, recommended for development)"),
+		Section("Session Management",
+			gohelp.Item("/new", "Create new session (auto-switch)"),
+			gohelp.Item("/sessions", "List all sessions (newest first, shows active)"),
+			gohelp.Item("/sessions attach <id>", "Switch to session (CLI supports numbers)"),
+			gohelp.Item("Auto-titles", "Sessions get short LLM-generated titles after first exchange"),
 		).
-		Text("Each session has independent conversation history. Sessions are isolated by key.")
+		Section("User Resolution",
+			gohelp.Item("CLI", "Defaults to system username as user ID"),
+			gohelp.Item("Telegram", "Uses Telegram user ID (automatic per-user isolation)"),
+			gohelp.Item("Explicit", "Use --user and --session flags for direct access"),
+		).
+		Section("Memory Limits",
+			gohelp.Item("max_messages", "History limit per session (0 = unlimited, default)"),
+		).
+		Text("Sessions are organized by user identity. Multiple interface contacts can link to one identity for unified history across CLI, Telegram, etc.")
 
-	gohelp.Run(helpArgs, root, setup, config, tools, prompt, interfaces, memory)
+	prerun := gohelp.NewPage("prerun", "prerun hook system").
+		Usage(".prerun.sh or prerun.sh").
+		Section("Overview",
+			gohelp.Item("Purpose", "Run setup/validation before each agent execution"),
+			gohelp.Item("Execution", "Runs before config loading, non-fatal (warns but continues)"),
+			gohelp.Item("Precedence", "Checks .prerun.sh first (hidden), falls back to prerun.sh"),
+			gohelp.Item("Hot reload", "Changes take effect on next message"),
+		).
+		Section("Default Template",
+			gohelp.Item("Auto-source tools", "Loops through tools/*/ and sources .prerun.sh or prerun.sh"),
+			gohelp.Item("Custom logic", "Add setup commands below the tool-sourcing loop"),
+		).
+		Section("Common Use Cases",
+			gohelp.Item("Create directories", "mkdir -p .data/custom"),
+			gohelp.Item("Validate files", "[ -f .data/required ] || touch .data/required"),
+			gohelp.Item("Tool setup", "Per-tool prerun in tools/memory/.prerun.sh"),
+		).
+		Section("Example: Tool-Specific Prerun",
+			gohelp.Item("Location", "tools/memory/.prerun.sh"),
+			gohelp.Item("Content", "#!/usr/bin/env bash\nmkdir -p .data/tools/memory"),
+			gohelp.Item("Sourced by", "Root .prerun.sh auto-sources all tool prerun scripts"),
+		).
+		Text("Prerun scripts run from agent root directory with access to .env variables. Errors are logged but don't block agent execution.")
+
+	gohelp.Run(helpArgs, root, setup, config, tools, prompt, interfaces, sessions, prerun)
 }

@@ -19,3 +19,6 @@ var EnvTemplate string
 
 //go:embed files/gitignore
 var Gitignore string
+
+//go:embed files/.prerun.sh
+var PrerunSh string
