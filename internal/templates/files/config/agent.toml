@@ -9,7 +9,7 @@ allow_by_default = true
 interfaces = ["cli"]
 
 [memory]
-max_messages = 0
+max_messages = 100  # Keep last N messages (0 = no persistence)
 
 # [environment]
 # Non-secret config defaults (committed to git)

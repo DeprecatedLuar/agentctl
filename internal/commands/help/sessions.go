@@ -5,7 +5,7 @@ import gohelp "github.com/DeprecatedLuar/gohelp-luar"
 func SessionsPage() *gohelp.Page {
 	return gohelp.NewPage("sessions", "session management and history").
 		Text("Sessions organize conversation history into isolated contexts. Each session maintains its own message history stored as JSONL files that persist across daemon restarts. Users can create new sessions, switch between them, and link multiple interface contacts (CLI + Telegram) to share history under a single identity. Sessions receive auto-generated titles after the first exchange.").
-		Usage("memory.max_messages = 0").
+		Usage("memory.max_messages = 100").
 		Section("Storage",
 			gohelp.Item("Format", "JSONL files in .data/sessions/{userID}/{sessionID}.jsonl"),
 			gohelp.Item("Session ID", "Format: YYYYMMDD_HHMMSS_<6-hex> (auto-generated)"),
@@ -30,7 +30,7 @@ func SessionsPage() *gohelp.Page {
 			gohelp.Item("Explicit", "Use --user and --session flags for direct access"),
 		).
 		Section("Memory Limits",
-			gohelp.Item("max_messages", "History limit per session (0 = unlimited, default)"),
+			gohelp.Item("max_messages", "Keep last N messages per session (0 = no persistence, default: 100)"),
 		).
 		Text("Sessions are organized by user identity. Multiple interface contacts can link to one identity for unified history across CLI, Telegram, etc.")
 }

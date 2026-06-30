@@ -14,7 +14,7 @@ func ConfigPage() *gohelp.Page {
 			gohelp.Item("tools", "Tool names to load (empty array = auto-discover all .toml in tools/)"),
 			gohelp.Item("interfaces", "Interfaces to enable: [\"cli\"] or [\"cli\", \"telegram\"]"),
 			gohelp.Item("logging", "Enable structured logging (default: true)"),
-			gohelp.Item("memory.max_messages", "History limit per session (0 = unlimited, default: 0)"),
+			gohelp.Item("memory.max_messages", "Keep last N messages per session (0 = no persistence, default: 100)"),
 		).
 		Text("Example: provider=\"openai\" model=\"gpt-4\" tools=[] interfaces=[\"cli\"]")
 }

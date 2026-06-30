@@ -74,7 +74,7 @@ allow_by_default = true
 interfaces = ["cli", "telegram"]
 
 [memory]
-max_messages = 0  # 0=unlimited
+max_messages = 100  # Keep last N messages (0=no persistence)
 
 [audio]  # Optional
 provider = "whisper"

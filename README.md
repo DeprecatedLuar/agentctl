@@ -130,7 +130,7 @@ allow_by_default = true              # Default access policy for new contacts
 interfaces = ["cli"]                 # ["cli", "telegram"] or ["cli"] only
 
 [memory]
-max_messages = 0                     # History limit per session (0 = unlimited)
+max_messages = 100                   # Keep last N messages per session (0 = no persistence)
 
 [audio]                              # Optional: speech-to-text for voice messages
 provider = "whisper"                 # "whisper" or http://localhost:9000/v1
@@ -594,8 +594,7 @@ Conversation history organized by user and session in `.data/sessions/{userID}/{
 
 ```toml
 [memory]
-max_messages = 0  # 0 = unlimited (recommended for development)
-                  # N = keep last N messages per session
+max_messages = 100  # Keep last N messages per session (0 = no persistence)
 ```
 
 **Session organization:**
