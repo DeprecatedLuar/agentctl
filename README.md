@@ -1,6 +1,13 @@
 # agentctl
 
-Framework for building AI agent harnesses. Tools are bash scripts with variable substitution. Agents can call other agents. All operations are shell commands. Edit configs while daemon runs—changes apply immediately.
+![Status](https://img.shields.io/badge/status-experimental-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Go](https://img.shields.io/badge/go-1.21+-00ADD8)
+
+Framework for composable AI agents and harnesses. Tools are bash scripts with variable substitution. Agents call tools. Tools execute shell commands. Commands can call other agents. Build complex behavior from simple primitives. Deploy in minutes.
+
+> [!CAUTION]
+> **Experimental software** - Under active development. Build from source. Expect breaking changes between commits.
 
 ## Quick Start
 
@@ -19,12 +26,15 @@ agentctl run
 agentctl chat "hello"
 ```
 
-Default config uses OpenRouter's free model router.
+> [!TIP]
+> Default config uses `openrouter/free` model. List free models with tool support: `agentctl models openrouter --free --tools`
 
 ## Installation
 
+**Requires:** Go 1.21+
+
 ```bash
-# Clone and build
+# Clone and build from source
 git clone https://github.com/DeprecatedLuar/agentctl
 cd agentctl
 go build -o agentctl ./cmd/agentctl
@@ -71,6 +81,7 @@ cp agentctl ~/bin/  # or /usr/local/bin
 **`models` command:**
 - `--free` - Show only free models
 - `--tools` - Show only models with tool support
+- `--stt` - Show speech-to-text models
 - `--all` - Include all providers (default: popular + free only)
 
 **`toolrun` command:**
@@ -87,15 +98,17 @@ my-agent/
 │   └── default             # Prompt template with sections
 ├── tools/                  # Tool definitions (*.toml)
 │   └── example.toml        # Example tool (excluded from auto-load)
+├── .prerun.sh              # Optional: runs before each agent execution (non-fatal)
 ├── .env                    # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
 └── .data/                  # Runtime data (auto-created)
     ├── contacts.toml       # Identities (user-edited) + contacts (auto-generated)
     ├── agent.sock          # Unix socket for CLI interface
-    ├── sessions/           # Conversation history (per-user, per-session)
-    │   └── {userID}/
-    │       ├── {sessionID}.jsonl
-    │       └── .last_session
-    └── debug-calls/        # Full request/response JSON (if debug_calls=true)
+    ├── logs/               # Structured logs (if logging=true)
+    ├── debug-calls/        # Full request/response JSON (if logging="debug")
+    └── sessions/           # Conversation history (per-user, per-session)
+        └── {userID}/
+            ├── {sessionID}.jsonl
+            └── .last_session
 ```
 
 ## Configuration
@@ -106,12 +119,15 @@ my-agent/
 <summary><b>Full specification</b></summary>
 
 ```toml
+[agent]
 provider = "openrouter"              # "openai", "openrouter", or http/https URL for custom endpoints
 model = "openrouter/free"            # Model name (provider-specific)
 tools = []                           # Empty = auto-discover all .toml in tools/, or ["name1", "name2"]
+logging = true                       # false | true | "debug" - controls logging output
+
+[access]
+allow_by_default = true              # Default access policy for new contacts
 interfaces = ["cli"]                 # ["cli", "telegram"] or ["cli"] only
-logging = true                       # Enable structured logging (default: true)
-debug_calls = false                  # Write full API requests/responses to .data/debug-calls/
 
 [memory]
 max_messages = 0                     # History limit per session (0 = unlimited)
@@ -119,6 +135,11 @@ max_messages = 0                     # History limit per session (0 = unlimited)
 [audio]                              # Optional: speech-to-text for voice messages
 provider = "whisper"                 # "whisper" or http://localhost:9000/v1
 model = "whisper-1"
+
+[environment]                        # Optional: non-secret config defaults
+# KEY = "value"                      # Supports directives {{file:}}, {{exec:}} and variables
+# API_ENDPOINT = "https://api.example.com"
+# DATA_PATH = "{{$agentpath}}/data"
 ```
 
 **Providers:**
@@ -126,15 +147,29 @@ model = "whisper-1"
 - `openrouter` - Requires `OPENROUTER_API_KEY` in .env
 - `http://...` or `https://...` - OpenAI-compatible custom endpoints (Ollama, LM Studio, vLLM)
 
+**Logging:**
+- `false` - Stdout only, no file logging
+- `true` - Stdout + basic file logging to `.data/logs/` (default)
+- `"debug"` - Stdout + file logging + full API request/response JSON dumps to `.data/debug-calls/`
+
 **Tool loading:**
 - `tools = []` - Auto-discover: recursively loads all `.toml` files in `tools/` (except `example.toml`)
 - `tools = ["name1", "name2"]` - Explicit: loads only `tools/name1.toml` and `tools/name2.toml` (no subdirectory support)
 
-**Interfaces:**
-- `cli` - Unix socket at `.data/agent.sock` (use `agentctl chat` to send messages)
-- `telegram` - Telegram bot (requires `TELEGRAM_BOT_TOKEN` in .env)
+**Access control:**
+- `allow_by_default` - Default access policy for new contacts (true = auto-allow, false = require explicit approval)
+- `interfaces` - Active interfaces: `["cli"]` for CLI only, or `["cli", "telegram"]` for both
+
+**Environment variables:**
+- Optional `[environment]` section for non-secret config defaults
+- Supports directives ({{file:}}, {{exec:}}) and system variables ({{$agent}}, {{$agentpath}}, etc.)
+- Values are resolved at config load time
+- Override via `.env` for secrets or local development
 
 </details>
+
+> [!IMPORTANT]
+> **Hot-reload enabled** - Edit any config file while daemon runs. Changes apply on next message. No restart needed.
 
 ### Prompt File
 
@@ -142,7 +177,7 @@ Prompt sections define conversation structure. Two types:
 
 ```
 [>role]       # Static section: processed once at parse time
-[>>role]      # Input section: {{input}} replaced per message (only one allowed)
+[>>role]      # Input section: {{$input}} replaced per message (only one allowed)
 ```
 
 **Example:**
@@ -150,8 +185,12 @@ Prompt sections define conversation structure. Two types:
 ```
 [>system]
 You are a helpful assistant with access to shell tools.
+Agent: {{$agent}}
+User: {{$user}}
+Session: {{$session}}
+Memory: {{file:.data/tools/memory/{{$user}}/memory.md}}
 Context: {{file:./docs/context.md}}
-Timestamp: {{exec:date -Iseconds}}
+Timestamp: {{$timestamp}}
 
 [>user]
 Analyze the latest logs.
@@ -160,7 +199,7 @@ Analyze the latest logs.
 I'll check the logs for you.
 
 [>>user]
-{{input}}
+{{$input}}
 ```
 
 **Directives in prompts:**
@@ -184,9 +223,27 @@ Directives are processed at parse time (once per request, due to hot-reload):
 
 **Features:**
 - Recursive: files loaded via `{{file:}}` can contain `{{exec:}}` directives (10-level depth limit)
+- Nested: variables in directive paths: `{{file:data/{{$user}}/notes.md}}`
 - Inline: `Current time: {{exec:date}} - processing...`
 - Escape: `\{{literal}}` becomes literal `{{literal}}`
 - Unknown directives cause parse errors (fail fast)
+
+**System variables** (available in all contexts):
+- `{{$agent}}` - Agent folder basename
+- `{{$agentpath}}` - Absolute agent folder path
+- `{{$user}}` - User identity ID
+- `{{$username}}` - User display name
+- `{{$session}}` - Current session ID
+- `{{$interface}}` - Interface name (cli, telegram)
+- `{{$model}}` - LLM model name
+- `{{$provider}}` - LLM provider name
+- `{{$timestamp}}` - RFC3339 timestamp
+- `{{$date}}` - ISO date (YYYY-MM-DD)
+- `{{$input}}` - User input (only in `[>>role]` input sections)
+
+**Resolution phases:**
+1. **Directives first**: `{{file:}}` and `{{exec:}}` processed, supports nested directives with variables in paths (e.g., `{{file:users/{{$user}}/notes.txt}}`)
+2. **Variables second**: System variables (`{{$var}}`) and user variables (`{{var}}`) substituted
 
 </details>
 
@@ -201,7 +258,7 @@ Directives are processed at parse time (once per request, due to hot-reload):
 
 **Input section `[>>role]`:**
 - Only one allowed per prompt
-- `{{input}}` placeholder replaced with user message
+- `{{$input}}` placeholder replaced with user message
 - Directives processed at parse time
 - Variables preserved for runtime substitution
 - Required for agent to receive messages
@@ -226,9 +283,21 @@ required = true
 
 **Tool execution:**
 1. AI calls tool with parameters: `{"city": "London"}`
-2. Variables substituted: `curl -s wttr.in/London?format=3`
-3. Executed via `sh -c` from agent folder
-4. stdout/stderr returned to AI
+2. Variables substituted inline: `curl -s wttr.in/London?format=3`
+3. Parameters injected as environment variables: `$TOOL_CITY=London`
+4. Executed via `sh -c` from tool's directory
+5. stdout/stderr returned to AI
+
+**Environment variables:**
+All resolved parameters are injected as `TOOL_<PARAMNAME>` environment variables (uppercase):
+- Safe for multiline values and special characters
+- Example: parameter `location` becomes `$TOOL_LOCATION`
+- Use env vars instead of `{{param}}` for complex shell scripts
+- `$AGENT_PATH` - Always available, contains absolute agent folder path
+- `[environment]` section values from agent.toml also injected
+
+> [!WARNING]
+> **Shell execution** - Tools run via `sh -c`. AI controls parameters. Validate inputs, use return overrides for sensitive values, disable dangerous tools with `enabled = false`.
 
 <details>
 <summary><b>Parameter fields</b></summary>
@@ -255,36 +324,46 @@ return = "value"             # Override with literal, file, or command (hides fr
 Use `return` to provide values without AI control:
 
 ```toml
-# Load from file
+# Load from file (hidden from AI)
 [api_key]
 description = "API key"
 type = "string"
 required = true
 return = "{{file:.env.API_KEY}}"    # Loaded at execution time, hidden from AI
 
-# Execute command
+# Execute command (hidden from AI)
 [timestamp]
 description = "Current timestamp"
 type = "string"
 return = "{{exec:date -Iseconds}}"  # Dynamic value from command
 
-# Literal value
+# Literal value (hidden from AI)
 [environment]
 description = "Environment name"
 type = "string"
 return = "production"               # Hardcoded value
+
+# Wrap AI value (visible to AI)
+[output_file]
+description = "Output file path"
+type = "string"
+return = "{{$agentpath}}/output/{{$completion}}"  # AI provides filename, we add path
 ```
 
 **Directives in return:**
 - `{{file:path}}` - Load file content
 - `{{exec:command}}` - Execute shell command
+- `{{$completion}}` - AI-provided value for this parameter (keeps parameter visible to AI)
+- System variables: `{{$agent}}`, `{{$agentpath}}`, `{{$user}}`, `{{$session}}`, etc.
 - Processed at tool execution time (supports hot-reload)
 - Escape: `return = '\{{literal}}'` (TOML literal string) or `return = "\\{{literal}}"`
 
 **Behavior:**
-- Parameters with `return` are automatically hidden from AI (blackbox)
+- Parameters with `return` are hidden from AI (blackbox) UNLESS they contain `{{$completion}}`
+- `{{$completion}}` keeps parameter visible and wraps the AI's value (e.g., `return = "--flag {{$completion}}"`)
 - Return values override AI-provided arguments during execution
 - Supports same path resolution as prompt directives (relative, ~/, absolute)
+- Supports nested directives with variables in paths (e.g., `{{file:{{$agentpath}}/secrets/key}}`)
 
 </details>
 
@@ -312,6 +391,8 @@ return = "{{file:.secrets/key}}"   # Loaded from file at execution time
 ```
 
 ## Interfaces
+
+Currently supports CLI and Telegram. Additional interfaces planned.
 
 ### CLI Interface
 
@@ -355,7 +436,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 **Features:**
 - Per-user sessions (automatic user ID from Telegram)
 - Typing indicators during processing
-- `/start` command support
+- System commands: `/start`, `/new`, `/sessions` (session switching via ID, not numeric index)
 - Voice message transcription (requires `[audio]` config)
 
 Both interfaces share the same agent runtime and session storage.
@@ -411,7 +492,7 @@ first_seen = 2026-06-17T15:04:05Z
 
 ### Hot-Reload
 
-Edit any config file while daemon runs—changes take effect immediately:
+Edit any config file while daemon runs. Changes take effect immediately:
 
 ```bash
 # Terminal 1: daemon running
@@ -437,6 +518,42 @@ agentctl chat "test updated config"
 - No need to restart daemon for experiments
 - Validation happens per request, not at startup
 
+### Prerun Hooks
+
+Execute shell scripts before each agent execution for setup, validation, or dynamic configuration:
+
+```bash
+# .prerun.sh (hidden, checked first) or prerun.sh (fallback)
+#!/usr/bin/env bash
+
+# Example: Create required directories
+mkdir -p .data/custom
+
+# Example: Validate required files
+[ -f .data/config.json ] || echo '{}' > .data/config.json
+
+# Example: Source tool-specific prerun scripts
+for tool_dir in tools/*/; do
+    [ -f "$tool_dir/.prerun.sh" ] && source "$tool_dir/.prerun.sh"
+    [ -f "$tool_dir/prerun.sh" ] && source "$tool_dir/prerun.sh"
+done
+```
+
+**Behavior:**
+- Runs from agent root directory before config loading
+- Non-fatal: errors logged but agent continues (ideal for self-healing operations)
+- Access to `.env` environment variables
+- Changes take effect on next message (hot-reload)
+- Common uses: mkdir, touch, source tool-specific setup
+
+**Tool-specific prerun** (e.g., `tools/memory/.prerun.sh`):
+```bash
+#!/usr/bin/env bash
+mkdir -p .data/tools/memory
+```
+
+Root `.prerun.sh` auto-sources all tool prerun scripts, enabling modular setup.
+
 ### Debug Features
 
 **1. Debug logging (`--debug` flag):**
@@ -447,10 +564,11 @@ agentctl run my-agent --debug
 
 Shows message previews, tool names, execution details in structured logs.
 
-**2. Full API call logging (`debug_calls = true` in agent.toml):**
+**2. Full API call logging (`logging = "debug"` in agent.toml):**
 
 ```toml
-debug_calls = true
+[agent]
+logging = "debug"
 ```
 
 Writes request/response JSON to `.data/debug-calls/`:
@@ -491,6 +609,14 @@ max_messages = 0  # 0 = unlimited (recommended for development)
 - Sessions isolated by user and session ID
 - JSONL format (plain text, one message per line)
 - Automatic migration when contacts are linked to identities
+
+**System Commands:**
+- `/new` - Create new session and automatically switch to it
+- `/sessions` - List all sessions (newest first, shows active session)
+- `/sessions attach <number|id>` - Switch to specific session (CLI: supports numeric index; Telegram: use session ID)
+- `/start` - Welcome message (Telegram only)
+
+System commands are handled by the interface layer and don't reach the agent. They provide session management without consuming agent context.
 
 ### Cross-Interface Message Delivery
 
@@ -670,6 +796,8 @@ return = "{{file:.secrets/api_token}}"  # AI never sees this
 [>system]
 You are a code reviewer with access to the current git state.
 
+Agent: {{$agent}}
+User: {{$username}}
 Repository: {{exec:basename $(pwd)}}
 Branch: {{exec:git branch --show-current}}
 Recent commits:
@@ -679,7 +807,7 @@ Guidelines:
 {{file:./docs/review-guidelines.md}}
 
 [>>user]
-{{input}}
+{{$input}}
 ```
 
 ## Architecture
@@ -696,13 +824,15 @@ agentctl run → daemon starts → loads interfaces from agent.toml
 
 **Component boundaries:**
 - **internal/config** - File loading (agent.toml, tools/*.toml, prompt)
+- **internal/resolution** - Two-phase template resolution (directives → variables)
 - **internal/providers/llm** - AI provider abstraction (openai, openrouter, generic)
 - **internal/agent** - Orchestration (agentic loop, tool execution)
 - **internal/interfaces** - Interface abstraction (CLI, Telegram) + outbound dispatcher
 - **internal/session** - Session management (identity linking, migration, JSONL persistence, channel resolution)
 - **internal/orchestration** - Application layer (message handling, delivery coordination, tool filtering)
 - **internal/shell** - Pure shell execution utility
-- **internal/directives** - Directive processor ({{file:}}, {{exec:}})
+- **internal/hooks** - Prerun hook execution (non-fatal)
+- **internal/syscommands** - System command parser (/new, /sessions, etc.)
 
 **Agentic loop:**
 1. Build messages: static sections + history + input
@@ -711,10 +841,10 @@ agentctl run → daemon starts → loads interfaces from agent.toml
 4. Return final text response
 
 **Modularity:**
-- Tools are shell commands (no Go code changes needed)
-- Providers are self-contained files (add new providers by creating a file)
-- Interfaces share Runner abstraction (add new interfaces by implementing Interface)
-- Directives support file/exec operations (extensible)
+- Tools are shell commands
+- Providers are self-contained files
+- Interfaces share Runner abstraction
+- Directives support file/exec operations
 
 ## Help System
 
@@ -727,10 +857,9 @@ agentctl help config       # agent.toml reference
 agentctl help tools        # Tool definition format
 agentctl help prompt       # Prompt file format
 agentctl help interfaces   # CLI and Telegram setup
-agentctl help memory       # Session isolation and history
+agentctl help sessions     # Session management and history
+agentctl help prerun       # Prerun hook system
 ```
-
-Fuzzy matching for typos: `agentctl help memori` suggests "memory".
 
 ## Testing
 

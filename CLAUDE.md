@@ -103,6 +103,7 @@ return = ""     # Override with literal/directive (auto-hides from AI)
 - Commands run from tool directory (not agent root)
 - `tools = []` recursively finds all .toml (including subdirs)
 - `tools = ["name"]` only loads top-level tools/ (no subdirs)
+- Parameters injected as both `{{var}}` (inline) and `$TOOL_VAR` (env) for safe multiline handling
 
 **.data/contacts.toml:**
 ```toml
