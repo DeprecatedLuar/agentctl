@@ -48,6 +48,9 @@ func Execute(cmd string, workDir string, agentFolder string, configEnv map[strin
 		envMap[k] = v
 	}
 
+	// 4. Set AGENT_PATH for tools to access agent root (always available)
+	envMap["AGENT_PATH"] = agentFolder
+
 	// Convert map to []string for cmd.Env
 	env := make([]string, 0, len(envMap))
 	for k, v := range envMap {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/llm"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 )
 
 const (
@@ -42,6 +43,18 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 	if err != nil {
 		return "", fmt.Errorf("failed to create provider: %w", err)
 	}
+
+	// Build runtime context for tool execution (used for variable substitution in return values)
+	runtimeCtx := resolution.NewContext(
+		agentFolder,
+		input.UserID,
+		"", // username not available here (could be added to Input if needed)
+		input.SessionID,
+		input.Interface,
+		cfg.Agent.Model,
+		cfg.Agent.Provider,
+		cfg.Environment,
+	)
 
 	// Build messages array
 	messages := []Message{}
@@ -121,7 +134,7 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 				return "", fmt.Errorf("unknown tool requested: %s", tc.Name)
 			}
 
-			result := ExecuteTool(tool, tc.Args, agentFolder, cfg.Environment, logger, verbose, debug)
+			result := ExecuteTool(tool, tc.Args, agentFolder, runtimeCtx, logger, verbose, debug)
 
 			// Add tool result as a message
 			// OpenAI expects tool results as role="tool" with tool_call_id

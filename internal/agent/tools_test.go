@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 )
 
 func TestExecuteTool_WorkingDirectory(t *testing.T) {
@@ -42,7 +43,8 @@ echo "Argument: $1"
 		"message": "hello",
 	}
 
-	result := ExecuteTool(tool, args, tmpDir, nil, false, false)
+	ctx := resolution.NewValidationContext(tmpDir)
+	result := ExecuteTool(tool, args, tmpDir, ctx, nil, false, false)
 
 	// Verify the working directory was set correctly
 	expectedDir := nestedDir
@@ -80,7 +82,8 @@ func TestExecuteTool_RelativePath(t *testing.T) {
 	}
 
 	// Execute the tool
-	result := ExecuteTool(tool, map[string]interface{}{}, tmpDir, nil, false, false)
+	ctx := resolution.NewValidationContext(tmpDir)
+	result := ExecuteTool(tool, map[string]interface{}{}, tmpDir, ctx, nil, false, false)
 
 	// Verify the helper was executed successfully
 	if !strings.Contains(result, "Helper works!") {

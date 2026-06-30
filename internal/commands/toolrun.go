@@ -9,6 +9,8 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
+	"github.com/DeprecatedLuar/agentctl/internal/resolution"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
 func HandleToolRun(args []string) error {
@@ -98,7 +100,32 @@ func HandleToolRun(args []string) error {
 
 	// Execute the tool (with debug enabled to show command)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	result := agent.ExecuteTool(&tool, params, absPath, agentCfg.Environment, logger, false, true)
+
+	// Resolve CLI user context (same as CLI interface does)
+	systemUser := os.Getenv("USER")
+	if systemUser == "" {
+		systemUser = "unknown"
+	}
+	platformID := systemUser
+	userID, err := session.ResolveUser(absPath, "cli", platformID)
+	if err != nil {
+		// Non-fatal: continue with system username as fallback
+		userID = systemUser
+	}
+
+	// Build context with CLI user (sessionID empty for one-off execution)
+	ctx := resolution.NewContext(
+		absPath,
+		userID,     // resolved user ID from contacts
+		systemUser, // display name
+		"",         // sessionID (no session for one-off tool execution)
+		"cli",      // interface
+		agentCfg.Agent.Model,
+		agentCfg.Agent.Provider,
+		agentCfg.Environment,
+	)
+
+	result := agent.ExecuteTool(&tool, params, absPath, ctx, logger, false, true)
 
 	// Print result
 	fmt.Print(result)

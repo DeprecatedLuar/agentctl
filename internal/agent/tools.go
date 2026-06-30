@@ -21,7 +21,7 @@ const (
 )
 
 // ExecuteTool runs a tool with the given arguments
-func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, configEnv map[string]string, logger *slog.Logger, verbose bool, debug bool) string {
+func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, runtimeCtx resolution.Context, logger *slog.Logger, verbose bool, debug bool) string {
 	// Build substitution map: Process return overrides with directive support
 	substitutions := make(map[string]string)
 
@@ -39,15 +39,8 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 
 		// Process return override if set
 		if param.Return != "" {
-			// Build minimal context for directive processing
-			ctx := resolution.Context{
-				AgentPath: agentFolder,
-				AgentName: filepath.Base(agentFolder),
-				ConfigEnv: configEnv,
-			}
-
-			// Process directives in return value ({{file:}} and {{exec:}})
-			processedValue, err := resolution.Process(param.Return, ctx)
+			// Process directives and variables in return value (uses full runtime context)
+			processedValue, err := resolution.Process(param.Return, runtimeCtx)
 			if err != nil {
 				// Directive processing failed - return formatted error (match tool error format)
 				return fmt.Sprintf(exitCodeFormat, 1, fmt.Sprintf("return directive failed for '%s': %v", paramName, err))
@@ -96,7 +89,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 	}
 
 	// Execute via shell (workDir for command execution, agentFolder for .env loading)
-	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir, agentFolder, configEnv)
+	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir, agentFolder, runtimeCtx.ConfigEnv)
 
 	// Format result
 	result := stdout
