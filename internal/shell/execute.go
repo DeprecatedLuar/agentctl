@@ -19,13 +19,13 @@ const (
 // Execute runs a shell command in the specified directory
 // Returns stdout, stderr, exit code, and any execution error
 // This is a pure function with no logging or formatting logic
-// Environment precedence: process env < configEnv < .env
+// Environment precedence: process env < configEnv < .env < toolEnv
 // workDir is where the command runs, agentFolder is where .env is loaded from
-func Execute(cmd string, workDir string, agentFolder string, configEnv map[string]string) (stdout, stderr string, exitCode int, err error) {
+func Execute(cmd string, workDir string, agentFolder string, configEnv map[string]string, toolEnv map[string]string) (stdout, stderr string, exitCode int, err error) {
 	execCmd := exec.Command(shellCmd, shellCmdFlag, cmd)
 	execCmd.Dir = workDir
 
-	// Build environment map with precedence: process env < configEnv < .env
+	// Build environment map with precedence: process env < configEnv < .env < toolEnv
 	envMap := make(map[string]string)
 
 	// 1. Start with current process environment (lowest priority)
@@ -41,7 +41,7 @@ func Execute(cmd string, workDir string, agentFolder string, configEnv map[strin
 		envMap[k] = v
 	}
 
-	// 3. Load .env from agent folder (highest priority, overrides everything)
+	// 3. Load .env from agent folder (overrides config env)
 	envPath := filepath.Join(agentFolder, ".env")
 	dotenvMap, _ := godotenv.Read(envPath) // Ignore error - file is optional
 	for k, v := range dotenvMap {
@@ -50,6 +50,11 @@ func Execute(cmd string, workDir string, agentFolder string, configEnv map[strin
 
 	// 4. Set AGENT_PATH for tools to access agent root (always available)
 	envMap["AGENT_PATH"] = agentFolder
+
+	// 5. Apply tool-specific environment (highest priority, overrides everything)
+	for k, v := range toolEnv {
+		envMap[k] = v
+	}
 
 	// Convert map to []string for cmd.Env
 	env := make([]string, 0, len(envMap))

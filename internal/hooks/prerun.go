@@ -33,6 +33,7 @@ func ExecutePrerun(agentFolder string, configEnv map[string]string, logger *slog
 		agentFolder, // workDir
 		agentFolder, // agentFolder (.env location)
 		configEnv,
+		nil, // toolEnv (not a tool execution)
 	)
 
 	// Log execution

@@ -70,6 +70,13 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		cmd = strings.ReplaceAll(cmd, placeholder, value)
 	}
 
+	// Build tool environment: inject all resolved params as TOOL_<PARAMNAME> env vars
+	toolEnv := make(map[string]string)
+	for key, value := range substitutions {
+		envKey := "TOOL_" + strings.ToUpper(key)
+		toolEnv[envKey] = value
+	}
+
 	// Log tool execution
 	if logger != nil {
 		msg := fmt.Sprintf("tool %s", tool.Name)
@@ -89,7 +96,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 	}
 
 	// Execute via shell (workDir for command execution, agentFolder for .env loading)
-	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir, agentFolder, runtimeCtx.ConfigEnv)
+	stdout, stderr, exitCode, err := shell.Execute(cmd, workDir, agentFolder, runtimeCtx.ConfigEnv, toolEnv)
 
 	// Format result
 	result := stdout

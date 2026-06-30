@@ -353,7 +353,7 @@ func loadFile(path, agentPath string) (string, error) {
 func execScript(path, agentPath string, configEnv map[string]string) (string, error) {
 	// Execute command - shell handles all path resolution (./script.sh, /abs/path, commands in PATH, ~/home)
 	// For {{exec:}} directives, working dir and agent folder are the same
-	stdout, stderr, exitCode, execErr := shell.Execute(path, agentPath, agentPath, configEnv)
+	stdout, stderr, exitCode, execErr := shell.Execute(path, agentPath, agentPath, configEnv, nil)
 
 	if execErr != nil {
 		// Log the failure for debugging (error text is injected into content)
