@@ -13,8 +13,8 @@ var (
 	boldItalicPattern3 = regexp.MustCompile(`\*\*_(.+?)_\*\*`)          // **_text_**
 	boldPattern1       = regexp.MustCompile(`\*\*(.+?)\*\*`)            // **text**
 	boldPattern2       = regexp.MustCompile(`__(.+?)__`)                // __text__
-	italicPattern1     = regexp.MustCompile(`(?:^|[^*_])\*([^*]+?)\*(?:[^*]|$)`)   // *text*
-	italicPattern2     = regexp.MustCompile(`(?:^|[^*_])_([^_]+?)_(?:[^_]|$)`)     // _text_
+	italicPattern1     = regexp.MustCompile(`(^|[^*_])\*([^*]+?)\*([^*]|$)`)   // *text*
+	italicPattern2     = regexp.MustCompile(`(^|[^*_])_([^_]+?)_([^_]|$)`)     // _text_
 	strikePattern      = regexp.MustCompile(`~~(.+?)~~`)                // ~~strike~~
 	codePattern        = regexp.MustCompile("`(.+?)`")                  // `code`
 	codeBlockPattern   = regexp.MustCompile("```(?:\n)?(.+?)(?:\n)?```") // ```code```
@@ -37,17 +37,18 @@ func formatForTelegram(text string) string {
 	text = boldPattern2.ReplaceAllString(text, "<b>$1</b>")
 
 	// *italic* or _italic_ -> <i>italic</i>
-	text = italicPattern1.ReplaceAllString(text, "<i>$1</i>")
-	text = italicPattern2.ReplaceAllString(text, "<i>$1</i>")
+	text = italicPattern1.ReplaceAllString(text, "$1<i>$2</i>$3")
+	text = italicPattern2.ReplaceAllString(text, "$1<i>$2</i>$3")
 
 	// ~~strikethrough~~ -> <s>strikethrough</s>
 	text = strikePattern.ReplaceAllString(text, "<s>$1</s>")
 
+	// ```code block``` -> <pre>code</pre> (must run before single-backtick codePattern,
+	// otherwise codePattern consumes the triple backticks as adjacent single-backtick pairs)
+	text = codeBlockPattern.ReplaceAllString(text, "<pre>$1</pre>")
+
 	// `code` -> <code>code</code>
 	text = codePattern.ReplaceAllString(text, "<code>$1</code>")
-
-	// ```code block``` -> <pre>code</pre>
-	text = codeBlockPattern.ReplaceAllString(text, "<pre>$1</pre>")
 
 	return text
 }

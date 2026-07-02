@@ -59,6 +59,11 @@ func (s *JSONLStore) sessionFilePath(userID, sessionID string) string {
 	return filepath.Join(s.AgentFolder, sessionsDir, userID, sessionID+jsonlExtension)
 }
 
+// UserFolder returns the per-user session directory path.
+func UserFolder(agentFolder, userID string) string {
+	return filepath.Join(agentFolder, sessionsDir, userID)
+}
+
 // getSessionLock returns the mutex for a specific session, creating it if needed.
 // This ensures all operations on the same session file are serialized.
 func (s *JSONLStore) getSessionLock(userID, sessionID string) *sync.Mutex {

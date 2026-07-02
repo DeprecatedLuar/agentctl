@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,26 +13,29 @@ import (
 )
 
 const (
-	debugDir      = ".data/debug-calls"
-	maxDebugFiles = 10 // Keep last N debug files
+	lastCallFile = "last-call.json"
 )
 
 // RequestData contains the full request payload for debugging
 type RequestData struct {
-	Timestamp string                 `json:"timestamp"`
-	Messages  []Message              `json:"messages"`
-	Tools     []ToolDefinition       `json:"tools"`
-	Provider  string                 `json:"provider"`
-	Model     string                 `json:"model"`
-	Session   string                 `json:"session,omitempty"`
+	Messages []Message        `json:"messages"`
+	Tools    []ToolDefinition `json:"tools"`
+	Provider string           `json:"provider"`
+	Model    string           `json:"model"`
 }
 
 // ResponseData contains the full response payload for debugging
 type ResponseData struct {
-	Timestamp string     `json:"timestamp"`
 	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	Error     string     `json:"error,omitempty"`
+}
+
+// ExchangeRecord merges one request/response pair into a single record
+type ExchangeRecord struct {
+	Timestamp string       `json:"timestamp"`
+	Request   RequestData  `json:"request"`
+	Response  ResponseData `json:"response"`
 }
 
 // Message represents a chat message
@@ -62,74 +64,59 @@ type ToolCall struct {
 	Args map[string]interface{} `json:"args"`
 }
 
-// LogRequest logs the request details at debug level and optionally writes to file
-func LogRequest(logger *slog.Logger, messages []Message, tools []config.ToolConfig, provider, model, session string, agentFolder string, writeFile bool) {
-	if logger == nil {
+// RecordExchange writes the merged request/response for one API call to the
+// user's last-call.json, overwriting any previous exchange. It also emits a
+// concise slog.Debug summary regardless of whether the file write is enabled.
+func RecordExchange(logger *slog.Logger, userFolder string, messages []Message, tools []config.ToolConfig, provider, model string, resp ResponseData, callErr error, enabled bool) {
+	if logger != nil {
+		msgPreview := buildMessagePreview(messages)
+		toolNames := buildToolNames(tools)
+		logger.Debug("request details",
+			"messages_count", len(messages),
+			"messages_preview", msgPreview,
+			"tools", toolNames,
+			"provider", provider,
+			"model", model,
+		)
+
+		if callErr != nil {
+			logger.Debug("response details", "error", callErr.Error())
+		} else if len(resp.ToolCalls) > 0 {
+			toolCallNames := make([]string, len(resp.ToolCalls))
+			for i, tc := range resp.ToolCalls {
+				toolCallNames[i] = tc.Name
+			}
+			logger.Debug("response details",
+				"content_length", len(resp.Content),
+				"tool_calls", toolCallNames,
+			)
+		} else {
+			logger.Debug("response details",
+				"content_length", len(resp.Content),
+				"content_preview", truncate(resp.Content, 100),
+			)
+		}
+	}
+
+	if !enabled {
 		return
 	}
 
-	// Log summary with message preview
-	msgPreview := buildMessagePreview(messages)
-	toolNames := buildToolNames(tools)
-
-	logger.Debug("request details",
-		"messages_count", len(messages),
-		"messages_preview", msgPreview,
-		"tools", toolNames,
-		"provider", provider,
-		"model", model,
-	)
-
-	// Optionally write full request to JSON file
-	if writeFile {
-		data := RequestData{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Messages:  messages,
-			Tools:     convertTools(tools),
-			Provider:  provider,
-			Model:     model,
-			Session:   session,
-		}
-		_ = writeDebugFile(agentFolder, "request", data)
+	record := ExchangeRecord{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Request: RequestData{
+			Messages: messages,
+			Tools:    convertTools(tools),
+			Provider: provider,
+			Model:    model,
+		},
+		Response: resp,
 	}
-}
-
-// LogResponse logs the response details at debug level and optionally writes to file
-func LogResponse(logger *slog.Logger, content string, toolCalls []ToolCall, err error, agentFolder string, writeFile bool) {
-	if logger == nil {
-		return
+	if callErr != nil {
+		record.Response.Error = callErr.Error()
 	}
 
-	if err != nil {
-		logger.Debug("response details", "error", err.Error())
-	} else if len(toolCalls) > 0 {
-		toolNames := make([]string, len(toolCalls))
-		for i, tc := range toolCalls {
-			toolNames[i] = tc.Name
-		}
-		logger.Debug("response details",
-			"content_length", len(content),
-			"tool_calls", toolNames,
-		)
-	} else {
-		logger.Debug("response details",
-			"content_length", len(content),
-			"content_preview", truncate(content, 100),
-		)
-	}
-
-	// Optionally write full response to JSON file
-	if writeFile {
-		data := ResponseData{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Content:   content,
-			ToolCalls: toolCalls,
-		}
-		if err != nil {
-			data.Error = err.Error()
-		}
-		_ = writeDebugFile(agentFolder, "response", data)
-	}
+	_ = writeLastCall(userFolder, record)
 }
 
 // LogToolExecution logs tool execution details
@@ -147,63 +134,20 @@ func LogToolExecution(logger *slog.Logger, toolName, command, result string, exi
 	)
 }
 
-// CleanupDebugFiles removes old debug files, keeping only the last N
-func CleanupDebugFiles(agentFolder string) error {
-	debugPath := filepath.Join(agentFolder, debugDir)
-
-	// Check if directory exists
-	if _, err := os.Stat(debugPath); os.IsNotExist(err) {
-		return nil // Nothing to clean up
+// writeLastCall writes the exchange record to <userFolder>/last-call.json, overwriting any previous call.
+func writeLastCall(userFolder string, record ExchangeRecord) error {
+	if err := os.MkdirAll(userFolder, 0755); err != nil {
+		return fmt.Errorf("create user folder: %w", err)
 	}
 
-	entries, err := os.ReadDir(debugPath)
+	jsonData, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
-		return fmt.Errorf("read debug directory: %w", err)
+		return fmt.Errorf("marshal exchange record: %w", err)
 	}
 
-	// Filter JSON files and sort by name (timestamp-based)
-	var files []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			files = append(files, entry.Name())
-		}
-	}
-	sort.Strings(files)
-
-	// Remove old files if we have more than maxDebugFiles
-	if len(files) > maxDebugFiles {
-		for i := 0; i < len(files)-maxDebugFiles; i++ {
-			filePath := filepath.Join(debugPath, files[i])
-			_ = os.Remove(filePath)
-		}
-	}
-
-	return nil
-}
-
-// writeDebugFile writes debug data to a timestamped JSON file
-func writeDebugFile(agentFolder, fileType string, data interface{}) error {
-	debugPath := filepath.Join(agentFolder, debugDir)
-
-	// Ensure directory exists
-	if err := os.MkdirAll(debugPath, 0755); err != nil {
-		return fmt.Errorf("create debug directory: %w", err)
-	}
-
-	// Create timestamped filename
-	timestamp := time.Now().Format("2006-01-02T15-04-05")
-	filename := fmt.Sprintf("%s-%s.json", timestamp, fileType)
-	filePath := filepath.Join(debugPath, filename)
-
-	// Marshal to JSON with pretty printing
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal debug data: %w", err)
-	}
-
-	// Write to file
+	filePath := filepath.Join(userFolder, lastCallFile)
 	if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
-		return fmt.Errorf("write debug file: %w", err)
+		return fmt.Errorf("write last-call file: %w", err)
 	}
 
 	return nil
@@ -215,7 +159,6 @@ func buildMessagePreview(messages []Message) string {
 		return "[]"
 	}
 
-	// Show first and last message roles/content preview
 	first := messages[0]
 	last := messages[len(messages)-1]
 

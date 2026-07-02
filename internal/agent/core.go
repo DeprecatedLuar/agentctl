@@ -8,6 +8,7 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/llm"
 	"github.com/DeprecatedLuar/agentctl/internal/resolution"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
 const (
@@ -39,7 +40,8 @@ type Message = llm.Message
 // Run executes the agent with the given configuration and input
 func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, logger *slog.Logger, verbose bool, debug bool) (string, error) {
 	// Create provider
-	prov, err := llm.NewProvider(cfg, agentFolder, logger)
+	userFolder := session.UserFolder(agentFolder, input.UserID)
+	prov, err := llm.NewProvider(cfg, agentFolder, userFolder, true, logger)
 	if err != nil {
 		return "", fmt.Errorf("failed to create provider: %w", err)
 	}

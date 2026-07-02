@@ -34,7 +34,7 @@ Var: {{myvar}}
 {{input}}`
 	
 	os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
-	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	
@@ -94,7 +94,7 @@ func TestDirectiveErrors(t *testing.T) {
 		promptContent := `[>system]
 {{unknown:./file}}`
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
-		os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644)
 
 		ctx := resolution.Context{AgentPath: tmpDir}
 	_, issues := Parse(tmpDir, ctx)
@@ -119,7 +119,7 @@ func TestDirectiveErrors(t *testing.T) {
 		promptContent := `[>system]
 Result: {{exec:./fail.sh}}`
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
-		os.WriteFile(filepath.Join(tmpDir, "prompts", "default"), []byte(promptContent), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644)
 
 		ctx := resolution.Context{AgentPath: tmpDir}
 	prompt, _ := Parse(tmpDir, ctx)

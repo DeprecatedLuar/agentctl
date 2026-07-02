@@ -47,8 +47,9 @@ func GenerateTitle(store SessionStore, cfg *config.AgentConfig, agentFolder, use
 		return nil
 	}
 
-	// Create provider using same logic as agent.Run()
-	prov, err := llm.NewProvider(cfg, agentFolder, logger)
+	// Create provider using same logic as agent.Run(), but don't record this
+	// exchange to last-call.json — it would clobber the real conversation's debug record.
+	prov, err := llm.NewProvider(cfg, agentFolder, UserFolder(agentFolder, userID), false, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create provider: %w", err)
 	}
