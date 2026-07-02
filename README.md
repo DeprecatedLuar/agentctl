@@ -95,7 +95,7 @@ my-agent/
 ├── config/
 │   └── agent.toml          # Provider, model, interfaces, memory config
 ├── prompts/
-│   └── default             # Prompt template with sections
+│   └── default.prompt      # Prompt template with sections
 ├── tools/                  # Tool definitions (*.toml)
 │   └── example.toml        # Example tool (excluded from auto-load)
 ├── .prerun.sh              # Optional: runs before each agent execution (non-fatal)
@@ -104,11 +104,11 @@ my-agent/
     ├── contacts.toml       # Identities (user-edited) + contacts (auto-generated)
     ├── agent.sock          # Unix socket for CLI interface
     ├── logs/               # Structured logs (if logging=true)
-    ├── debug-calls/        # Full request/response JSON (if logging="debug")
     └── sessions/           # Conversation history (per-user, per-session)
         └── {userID}/
             ├── {sessionID}.jsonl
-            └── .last_session
+            ├── .last_session
+            └── last-call.json  # Last request+response, overwritten each call (if logging="debug")
 ```
 
 ## Configuration
@@ -150,7 +150,7 @@ model = "whisper-1"
 **Logging:**
 - `false` - Stdout only, no file logging
 - `true` - Stdout + basic file logging to `.data/logs/` (default)
-- `"debug"` - Stdout + file logging + full API request/response JSON dumps to `.data/debug-calls/`
+- `"debug"` - Stdout + file logging + full API request/response JSON written to `.data/sessions/{userID}/last-call.json` (overwritten on every call, per user)
 
 **Tool loading:**
 - `tools = []` - Auto-discover: recursively loads all `.toml` files in `tools/` (except `example.toml`)
@@ -571,14 +571,14 @@ Shows message previews, tool names, execution details in structured logs.
 logging = "debug"
 ```
 
-Writes request/response JSON to `.data/debug-calls/`:
-- `2026-06-14T15-04-05-request.json` - Full messages array, tool definitions, provider/model
-- `2026-06-14T15-04-05-response.json` - Full AI response
-
-Auto-cleanup keeps last 10 files. Inspect with:
+Writes the merged request+response for a user's most recent API call to
+`.data/sessions/{userID}/last-call.json`, overwritten on every call (only the
+latest exchange is kept — no accumulating files to clean up). Session-title
+generation calls are excluded so they don't overwrite the real conversation's
+record. Inspect with:
 
 ```bash
-cat .data/debug-calls/*.json | jq .
+cat .data/sessions/{userID}/last-call.json | jq .
 ```
 
 ### Session Management

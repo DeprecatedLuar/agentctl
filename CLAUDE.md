@@ -45,12 +45,12 @@ Interfaces (cli/, telegram/) → ports.go (MessageHandler)
 ```
 .prerun.sh              # Runs before each message (non-fatal)
 config/agent.toml       # [agent], [access], [memory], [audio]
-prompts/default         # [>role] static, [>>role] input
+prompts/default.prompt  # [>role] static, [>>role] input
 tools/*.toml            # Command + params (auto-discover or explicit)
 .data/
   contacts.toml         # [[identity]] + [[contact]]
   sessions/{userID}/{sessionID}.jsonl
-  debug-calls/          # If logging="debug"
+  sessions/{userID}/last-call.json  # If logging="debug" - last request+response, overwritten each call
 ```
 
 **Flows:**
@@ -67,7 +67,7 @@ tools/*.toml            # Command + params (auto-discover or explicit)
 provider = "openrouter"  # or "openai" or http(s):// URL
 model = "openrouter/free"
 tools = []               # Empty=auto-discover, or ["name1", "name2"]
-logging = false | true | "debug"  # "debug" enables .data/debug-calls/
+logging = false | true | "debug"  # "debug" enables .data/sessions/{userID}/last-call.json
 
 [access]
 allow_by_default = true
@@ -165,8 +165,8 @@ Runs before each agent execution:
 
 ## Debug
 
-1. `--debug` flag: Enhanced slog with message previews, tool details
-2. `logging = "debug"` (agent.toml): Writes timestamped JSON to `.data/debug-calls/` (auto-cleanup: last 10 files)
+1. `--debug` flag: Enhanced slog with message previews, tool details (operational log verbosity — separate axis from #2)
+2. `logging = "debug"` (agent.toml): Writes merged request+response JSON to `.data/sessions/{userID}/last-call.json`, overwritten on every call. Session-title-generation calls are excluded (they'd clobber the real conversation's record).
 
 ## Design Decisions
 
