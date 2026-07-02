@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
-	debugpkg "github.com/DeprecatedLuar/agentctl/internal/debug"
+	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/shell"
 )
@@ -18,10 +19,13 @@ const (
 
 	// Error format
 	exitCodeFormat = "exit %d: %s"
+
+	// Output preview length shown in the [TOOL] log line (full output shown under -v)
+	toolPreviewLen = 80
 )
 
 // ExecuteTool runs a tool with the given arguments
-func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, runtimeCtx resolution.Context, logger *slog.Logger, verbose bool, debug bool) string {
+func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, runtimeCtx resolution.Context, lg *slog.Logger, verbose bool, debug bool) string {
 	// Build substitution map: Process return overrides with directive support
 	substitutions := make(map[string]string)
 
@@ -53,7 +57,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 					aiValue = strings.TrimSpace(fmt.Sprintf("%v", val))
 				}
 				if aiValue == "" {
-					processedValue = ""  // Empty optional param
+					processedValue = "" // Empty optional param
 				} else {
 					processedValue = strings.ReplaceAll(processedValue, "{{$completion}}", aiValue)
 				}
@@ -77,16 +81,6 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		toolEnv[envKey] = value
 	}
 
-	// Log tool execution
-	if logger != nil {
-		msg := fmt.Sprintf("tool %s", tool.Name)
-		if debug {
-			logger.Debug(msg, "command", cmd)
-		} else {
-			logger.Info(msg)
-		}
-	}
-
 	// Determine working directory
 	// Tools run in their own directory (so they can reference local files with ./)
 	// Falls back to agent folder if tool has no path (shouldn't happen in practice)
@@ -104,29 +98,59 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		result = fmt.Sprintf(exitCodeFormat, exitCode, stderr)
 	}
 
-	if logger != nil {
-		msg := fmt.Sprintf("tool %s completed", tool.Name)
-		if verbose {
-			logger.Info(msg,
-				"exit_code", exitCode,
-				"stdout", stdout,
-				"stderr", stderr,
-			)
-		} else {
-			logger.Info(msg,
-				"exit_code", exitCode,
-				"stdout_len", len(stdout),
-				"stderr_len", len(stderr),
-			)
+	// Log tool execution as a single line: name, resolved args, exit code,
+	// output preview. Raw shell command only shown under --debug. A non-zero
+	// exit logs at Warn (no kind) so failures keep their [WARN] tag instead
+	// of the routine [TOOL] one.
+	if lg != nil {
+		out := stdout
+		if !verbose {
+			out = truncate(out, toolPreviewLen)
 		}
 
-		// Enhanced debug logging
+		fields := []any{"args", formatArgs(substitutions)}
 		if debug {
-			debugpkg.LogToolExecution(logger, tool.Name, cmd, result, exitCode)
+			fields = append(fields, "command", cmd)
+		}
+		fields = append(fields, "exit", exitCode, "out", out)
+
+		if exitCode != 0 {
+			fields = append(fields, "stderr", stderr)
+			lg.Warn(tool.Name, fields...)
+		} else {
+			fields = append([]any{"kind", logger.KindTool}, fields...)
+			lg.Info(tool.Name, fields...)
 		}
 	}
 
 	return result
+}
+
+// formatArgs renders resolved tool args as a stable, readable string for logging.
+func formatArgs(substitutions map[string]string) string {
+	if len(substitutions) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(substitutions))
+	for k := range substitutions {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = fmt.Sprintf("%s=%q", k, substitutions[k])
+	}
+	return strings.Join(parts, " ")
+}
+
+// truncate shortens a string to maxLen, adding "..." if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // FindTool finds a tool by name in the tools list

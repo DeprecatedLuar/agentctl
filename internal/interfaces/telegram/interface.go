@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/DeprecatedLuar/agentctl/internal"
+	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
@@ -73,7 +74,9 @@ func (t *TelegramInterface) Start(ctx context.Context) error {
 	// Store bot for Sender interface
 	t.bot = bot
 
-	fmt.Printf("Telegram interface authorized as @%s\n", bot.Self.UserName)
+	if t.logger != nil {
+		t.logger.Info("telegram authorized", "bot", bot.Self.UserName)
+	}
 
 	// Configure updates
 	u := tgbotapi.NewUpdate(0)
@@ -167,9 +170,9 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	if t.logger != nil {
 		msg := fmt.Sprintf("message received %s:%s", contactID, interfaceNameTelegram)
 		if t.verbose {
-			t.logger.Info(msg, "content", text)
+			t.logger.Info(msg, "kind", logger.KindRecv, "content", text)
 		} else {
-			t.logger.Info(msg)
+			t.logger.Info(msg, "kind", logger.KindRecv)
 		}
 	}
 
@@ -199,9 +202,9 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	if t.logger != nil {
 		msg := fmt.Sprintf("response sent %s:%s", contactID, interfaceNameTelegram)
 		if t.verbose {
-			t.logger.Info(msg, "content", response)
+			t.logger.Info(msg, "kind", logger.KindSent, "content", response)
 		} else {
-			t.logger.Info(msg)
+			t.logger.Info(msg, "kind", logger.KindSent)
 		}
 	}
 

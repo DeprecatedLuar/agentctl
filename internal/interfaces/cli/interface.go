@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/DeprecatedLuar/agentctl/internal"
+	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
 )
@@ -100,7 +101,9 @@ func (c *CLIInterface) Start(ctx context.Context) error {
 	}
 	defer listener.Close()
 
-	fmt.Printf("CLI interface listening on %s\n", c.socketPath)
+	if c.logger != nil {
+		c.logger.Info("cli listening", "socket", c.socketPath)
+	}
 
 	// Accept connections in a loop
 	go func() {
@@ -175,9 +178,9 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 		if c.logger != nil {
 			msg := fmt.Sprintf("message received %s:%s", contactID, interfaceNameCLI)
 			if c.verbose {
-				c.logger.Info(msg, "content", req.Message)
+				c.logger.Info(msg, "kind", logger.KindRecv, "content", req.Message)
 			} else {
-				c.logger.Info(msg)
+				c.logger.Info(msg, "kind", logger.KindRecv)
 			}
 		}
 
@@ -194,9 +197,9 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 			if c.logger != nil {
 				msg := fmt.Sprintf("response sent %s:%s", contactID, interfaceNameCLI)
 				if c.verbose {
-					c.logger.Info(msg, "content", response)
+					c.logger.Info(msg, "kind", logger.KindSent, "content", response)
 				} else {
-					c.logger.Info(msg)
+					c.logger.Info(msg, "kind", logger.KindSent)
 				}
 			}
 
@@ -221,9 +224,9 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 	if c.logger != nil {
 		msg := fmt.Sprintf("message received %s:%s (explicit)", resolved.UserID, interfaceNameCLI)
 		if c.verbose {
-			c.logger.Info(msg, "content", req.Message)
+			c.logger.Info(msg, "kind", logger.KindRecv, "content", req.Message)
 		} else {
-			c.logger.Info(msg)
+			c.logger.Info(msg, "kind", logger.KindRecv)
 		}
 	}
 
@@ -240,9 +243,9 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 		if c.logger != nil {
 			msg := fmt.Sprintf("response sent %s:%s (explicit)", resolved.UserID, interfaceNameCLI)
 			if c.verbose {
-				c.logger.Info(msg, "content", response)
+				c.logger.Info(msg, "kind", logger.KindSent, "content", response)
 			} else {
-				c.logger.Info(msg)
+				c.logger.Info(msg, "kind", logger.KindSent)
 			}
 		}
 
@@ -290,9 +293,9 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 	if c.logger != nil {
 		msg := fmt.Sprintf("message received %s:%s (with options)", userID, interfaceNameCLI)
 		if c.verbose {
-			c.logger.Info(msg, "content", req.Message)
+			c.logger.Info(msg, "kind", logger.KindRecv, "content", req.Message)
 		} else {
-			c.logger.Info(msg)
+			c.logger.Info(msg, "kind", logger.KindRecv)
 		}
 	}
 
@@ -309,9 +312,9 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 		if c.logger != nil {
 			msg := fmt.Sprintf("response sent %s:%s (with options)", userID, interfaceNameCLI)
 			if c.verbose {
-				c.logger.Info(msg, "content", response)
+				c.logger.Info(msg, "kind", logger.KindSent, "content", response)
 			} else {
-				c.logger.Info(msg)
+				c.logger.Info(msg, "kind", logger.KindSent)
 			}
 		}
 

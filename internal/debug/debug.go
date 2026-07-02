@@ -119,21 +119,6 @@ func RecordExchange(logger *slog.Logger, userFolder string, messages []Message, 
 	_ = writeLastCall(userFolder, record)
 }
 
-// LogToolExecution logs tool execution details
-func LogToolExecution(logger *slog.Logger, toolName, command, result string, exitCode int) {
-	if logger == nil {
-		return
-	}
-
-	logger.Debug("tool execution",
-		"tool", toolName,
-		"command", command,
-		"exit_code", exitCode,
-		"result_length", len(result),
-		"result_preview", truncate(result, 200),
-	)
-}
-
 // writeLastCall writes the exchange record to <userFolder>/last-call.json, overwriting any previous call.
 func writeLastCall(userFolder string, record ExchangeRecord) error {
 	if err := os.MkdirAll(userFolder, 0755); err != nil {

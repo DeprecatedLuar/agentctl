@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/DeprecatedLuar/agentctl/internal"
@@ -102,26 +103,20 @@ func HandleRun(args []string) error {
 	_, promptIssues := config.Parse(absPath, resolution.NewValidationContext(absPath))
 	allIssues = append(allIssues, promptIssues...)
 
-	// Print validation results
-	if len(allIssues) > 0 {
-		hasErrors := false
+	// agentCfg must be loaded before we can build a logger or header (needs
+	// provider/model/logging settings); if it's nil, config loading itself
+	// failed, so print raw and bail — there's no logger to route through yet.
+	if agentCfg == nil {
 		for _, issue := range allIssues {
 			fmt.Printf("[%s] %s\n", issue.Type, issue.Message)
-			if issue.Type == config.IssueError {
-				hasErrors = true
-			}
 		}
-		fmt.Println() // blank line after issues
-
-		// Exit if any errors
-		if hasErrors {
-			return fmt.Errorf("configuration validation failed")
-		}
+		return fmt.Errorf("failed to load agent configuration")
 	}
 
-	// Ensure agentCfg is not nil at this point
-	if agentCfg == nil {
-		return fmt.Errorf("failed to load agent configuration")
+	// Default interfaces to ["cli"] if not specified
+	interfacesList := agentCfg.Access.Interfaces
+	if len(interfacesList) == 0 {
+		interfacesList = defaultInterfaces
 	}
 
 	// Setup logger
@@ -133,6 +128,28 @@ func HandleRun(args []string) error {
 	if err != nil {
 		return fmt.Errorf("setup logger: %w", err)
 	}
+
+	logger.PrintBox([]string{
+		fmt.Sprintf("agentctl · %s", filepath.Base(absPath)),
+		fmt.Sprintf("%s/%s", agentCfg.Agent.Provider, agentCfg.Agent.Model),
+		fmt.Sprintf("%d tools · %s", len(tools), strings.Join(interfacesList, ", ")),
+	})
+
+	// Route validation issues through the logger now that one exists, so
+	// they get [WARN]/[ERROR] tags and land in agent.log, not just stdout.
+	hasErrors := false
+	for _, issue := range allIssues {
+		if issue.Type == config.IssueError {
+			lg.Error(issue.Message)
+			hasErrors = true
+		} else {
+			lg.Warn(issue.Message)
+		}
+	}
+	if hasErrors {
+		return fmt.Errorf("configuration validation failed")
+	}
+
 	lg.Info("agent started",
 		"provider", agentCfg.Agent.Provider,
 		"model", agentCfg.Agent.Model,
@@ -180,15 +197,6 @@ func HandleRun(args []string) error {
 
 	// Create outbound dispatcher
 	dispatcher := interfaces.NewOutboundDispatcher()
-
-	// Default interfaces to ["cli"] if not specified
-	interfacesList := agentCfg.Access.Interfaces
-	if len(interfacesList) == 0 {
-		interfacesList = defaultInterfaces
-	}
-
-	fmt.Printf("Agent: %s/%s\n", agentCfg.Agent.Provider, agentCfg.Agent.Model)
-	fmt.Printf("Tools: %d | Interfaces: %v\n\n", len(tools), interfacesList)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

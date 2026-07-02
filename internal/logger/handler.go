@@ -2,32 +2,22 @@ package logger
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"sync"
 )
 
-// Colors for TTY output
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorCyan   = "\033[36m"
-	colorGray   = "\033[90m"
-)
+const attrKind = "kind"
 
 // PrettyHandler formats logs for human readability when output is a TTY
 type PrettyHandler struct {
-	mu      sync.Mutex
-	writer  io.Writer
-	level   slog.Level
-	isTTY   bool
-	groups  []string
-	attrs   []slog.Attr
+	mu     sync.Mutex
+	writer io.Writer
+	level  slog.Level
+	isTTY  bool
+	groups []string
+	attrs  []slog.Attr
 }
 
 // NewPrettyHandler creates a handler that formats nicely for TTY
@@ -61,43 +51,20 @@ func (h *PrettyHandler) Handle(_ context.Context, r slog.Record) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	var output string
-
-	if h.isTTY {
-		// Pretty format for TTY: LEVEL HH:MM:SS message key=val
-		levelStr := h.formatLevel(r.Level)
-		timeStr := r.Time.Format("15:04:05")
-
-		output = fmt.Sprintf("%s %s%s%s %s",
-			levelStr,
-			colorGray, timeStr, colorReset,
-			r.Message,
-		)
-
-		// Add attributes
-		r.Attrs(func(a slog.Attr) bool {
-			output += fmt.Sprintf(" %s%s%s=%v",
-				colorCyan, a.Key, colorReset, a.Value,
-			)
+	// Pull the "kind" attr out (if any) so it drives the tag instead of
+	// printing as a regular key=val pair.
+	var kind string
+	attrs := make([]slog.Attr, 0, r.NumAttrs())
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == attrKind {
+			kind = a.Value.String()
 			return true
-		})
+		}
+		attrs = append(attrs, a)
+		return true
+	})
 
-		output += "\n"
-	} else {
-		// Structured format for pipes/non-TTY
-		output = fmt.Sprintf("time=%s level=%s msg=%q",
-			r.Time.Format("2006-01-02T15:04:05.000Z07:00"),
-			r.Level.String(),
-			r.Message,
-		)
-
-		r.Attrs(func(a slog.Attr) bool {
-			output += fmt.Sprintf(" %s=%v", a.Key, a.Value)
-			return true
-		})
-
-		output += "\n"
-	}
+	output := h.format(r, kind, attrs)
 
 	_, err := h.writer.Write([]byte(output))
 	return err
@@ -126,24 +93,5 @@ func (h *PrettyHandler) WithGroup(name string) slog.Handler {
 		isTTY:  h.isTTY,
 		groups: newGroups,
 		attrs:  h.attrs,
-	}
-}
-
-func (h *PrettyHandler) formatLevel(level slog.Level) string {
-	if !h.isTTY {
-		return level.String()
-	}
-
-	switch level {
-	case slog.LevelDebug:
-		return colorGray + "[DEBUG]" + colorReset
-	case slog.LevelInfo:
-		return colorBlue + "[INFO]" + colorReset
-	case slog.LevelWarn:
-		return colorYellow + "[WARN]" + colorReset
-	case slog.LevelError:
-		return colorRed + "[ERROR]" + colorReset
-	default:
-		return "[" + level.String() + "]"
 	}
 }

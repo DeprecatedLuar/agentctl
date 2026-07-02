@@ -40,6 +40,13 @@ type Parameter struct {
 	Return      string `toml:"return"` // Override value with directive support (hides from AI)
 }
 
+// shouldHideFromAI reports whether this parameter is excluded from the schema
+// shown to the AI: either explicitly disabled, or given a return override that
+// isn't a {{$completion}} placeholder (a blackbox value the AI never provides).
+func (p Parameter) shouldHideFromAI() bool {
+	return !p.Enabled || (p.Return != "" && !strings.Contains(p.Return, "{{$completion}}"))
+}
+
 func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []ValidationIssue) {
 	var issues []ValidationIssue
 	var tools []ToolConfig
@@ -182,16 +189,6 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 			Enabled: true,                 // default enabled
 		}
 
-		if desc, ok := paramMap["description"].(string); ok {
-			param.Description = desc
-		} else {
-			// Warn if parameter missing description
-			issues = append(issues, ValidationIssue{
-				Type:    IssueWarning,
-				Message: fmt.Sprintf("tools/%s: parameter '%s' missing description", relPath, key),
-			})
-		}
-
 		if typ, ok := paramMap["type"].(string); ok {
 			param.Type = typ
 		}
@@ -215,6 +212,16 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 			}
 		}
 
+		if desc, ok := paramMap["description"].(string); ok {
+			param.Description = desc
+		} else if !param.shouldHideFromAI() {
+			// Warn if parameter missing description, unless it's hidden from the AI anyway
+			issues = append(issues, ValidationIssue{
+				Type:    IssueWarning,
+				Message: fmt.Sprintf("tools/%s: parameter '%s' missing description", relPath, key),
+			})
+		}
+
 		tool.Parameters[key] = param
 	}
 
@@ -230,11 +237,7 @@ func ConvertToolParameters(tool *ToolConfig) (map[string]interface{}, []string) 
 	required := []string{}
 
 	for name, param := range tool.Parameters {
-		// Hide from AI if:
-		// 1. Explicitly disabled (enabled=false), OR
-		// 2. Has return override AND it doesn't contain {{$completion}} (blackbox value)
-		shouldHide := !param.Enabled || (param.Return != "" && !strings.Contains(param.Return, "{{$completion}}"))
-		if shouldHide {
+		if param.shouldHideFromAI() {
 			continue
 		}
 

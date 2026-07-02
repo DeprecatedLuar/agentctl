@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/llm"
 	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
@@ -38,10 +39,10 @@ type Input struct {
 type Message = llm.Message
 
 // Run executes the agent with the given configuration and input
-func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, logger *slog.Logger, verbose bool, debug bool) (string, error) {
+func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, lg *slog.Logger, verbose bool, debug bool) (string, error) {
 	// Create provider
 	userFolder := session.UserFolder(agentFolder, input.UserID)
-	prov, err := llm.NewProvider(cfg, agentFolder, userFolder, true, logger)
+	prov, err := llm.NewProvider(cfg, agentFolder, userFolder, true, lg)
 	if err != nil {
 		return "", fmt.Errorf("failed to create provider: %w", err)
 	}
@@ -89,37 +90,35 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 
 	// Agentic loop: send -> check for tool calls -> execute -> repeat
 	for i := 0; i < maxIterations; i++ {
-		// Log provider request
-		if logger != nil {
-			logger.Info("provider request", "messages", len(messages), "tools", len(tools))
+		// Log request to the AI
+		if lg != nil {
+			lg.Info("request", "kind", logger.KindCall, "messages", len(messages), "tools", len(tools))
 		}
 
 		response, toolCalls, err := prov.SendMessages(messages, tools)
 		if err != nil {
-			if logger != nil {
-				logger.Error("provider error", "error", err)
+			if lg != nil {
+				lg.Error("provider error", "error", err)
 			}
 			return "", fmt.Errorf("provider error: %w", err)
 		}
 
-		// Log provider response
-		if logger != nil {
+		// Log response from the AI
+		if lg != nil {
 			if len(toolCalls) > 0 {
 				toolNames := make([]string, len(toolCalls))
 				for i, tc := range toolCalls {
 					toolNames[i] = tc.Name
 				}
-				logger.Info("provider response", "tools", toolNames)
+				lg.Info("response", "kind", logger.KindRepl, "tools", toolNames)
 			} else {
-				logger.Info("provider response")
+				lg.Info("response", "kind", logger.KindRepl)
 			}
 		}
 
-		// If no tool calls, we're done
+		// If no tool calls, we're done — the interface layer logs the
+		// user-facing [SENT] once it actually delivers this response.
 		if len(toolCalls) == 0 {
-			if logger != nil {
-				logger.Info("response sent")
-			}
 			return response, nil
 		}
 
@@ -136,7 +135,7 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 				return "", fmt.Errorf("unknown tool requested: %s", tc.Name)
 			}
 
-			result := ExecuteTool(tool, tc.Args, agentFolder, runtimeCtx, logger, verbose, debug)
+			result := ExecuteTool(tool, tc.Args, agentFolder, runtimeCtx, lg, verbose, debug)
 
 			// Add tool result as a message
 			// OpenAI expects tool results as role="tool" with tool_call_id
