@@ -1,14 +1,13 @@
 [>system]
-Available system variables:
-- {{$agent}}, {{$user}}, {{$username}}, {{$session}}
-- {{$interface}}, {{$timestamp}}, {{$date}}
-- {{$model}}, {{$provider}}
+{{file:./prompts/system.md}}
 
 [>user]
-
+<context>
+Current date is {{$now}}
+User is {{$user}}
+</context>
 
 [>assistant]
-
 
 [>>user]
 {{$input}}

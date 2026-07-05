@@ -1,0 +1,24 @@
+command = "./scripts/memory_edit.sh"
+description = """
+Replace a string in a memory file. Read the file first to get exact strings.
+core.md is capped at 2000 characters — compress when full.
+"""
+
+[user]
+type = "string"
+return = "{{$user}}"
+
+[file]
+description = "Filename to edit"
+type = "string"
+required = true
+
+[old]
+description = "Exact string to find"
+type = "string"
+required = true
+
+[new]
+description = "Replacement string"
+type = "string"
+required = true

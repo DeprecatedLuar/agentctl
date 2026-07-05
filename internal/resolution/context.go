@@ -1,6 +1,7 @@
 package resolution
 
 import (
+	"fmt"
 	"path/filepath"
 	"time"
 )
@@ -69,13 +70,23 @@ func buildSystemVariables(ctx Context) map[string]string {
 	if !ctx.Timestamp.IsZero() {
 		vars["$timestamp"] = ctx.Timestamp.Format(time.RFC3339)
 		vars["$date"] = ctx.Timestamp.Format("2006-01-02")
+		vars["$now"] = formatNow(ctx.Timestamp)
 	} else {
 		vars["$timestamp"] = ""
 		vars["$date"] = ""
+		vars["$now"] = ""
 	}
 
 	vars["$model"] = ctx.Model
 	vars["$provider"] = ctx.Provider
 
 	return vars
+}
+
+// formatNow renders a human-readable timestamp like
+// "Tuesday, July 2, 2026, 2:23 PM (GMT-3)".
+func formatNow(t time.Time) string {
+	_, offsetSeconds := t.Zone()
+	offsetHours := offsetSeconds / 3600
+	return fmt.Sprintf("%s (GMT%+d)", t.Format("Monday, January 2, 2006, 3:04 PM"), offsetHours)
 }

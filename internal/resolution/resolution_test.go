@@ -50,6 +50,9 @@ func TestBuildSystemVariables(t *testing.T) {
 	if vars["$date"] != "2026-06-24" {
 		t.Errorf("$date = %q, want %q", vars["$date"], "2026-06-24")
 	}
+	if vars["$now"] != "Wednesday, June 24, 2026, 3:30 PM (GMT+0)" {
+		t.Errorf("$now = %q, want %q", vars["$now"], "Wednesday, June 24, 2026, 3:30 PM (GMT+0)")
+	}
 }
 
 func TestBuildSystemVariables_EmptyContext(t *testing.T) {
@@ -79,6 +82,9 @@ func TestBuildSystemVariables_EmptyContext(t *testing.T) {
 	}
 	if _, exists := vars["$timestamp"]; !exists {
 		t.Error("$timestamp key missing")
+	}
+	if _, exists := vars["$now"]; !exists {
+		t.Error("$now key missing")
 	}
 	if _, exists := vars["$date"]; !exists {
 		t.Error("$date key missing")

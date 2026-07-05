@@ -11,6 +11,9 @@ var ContactsToml string
 //go:embed files/prompts/default.prompt
 var Prompt string
 
+//go:embed files/prompts/system.md
+var SystemMd string
+
 //go:embed files/tool-example.toml
 var ToolExample string
 

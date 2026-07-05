@@ -85,7 +85,7 @@ model = "whisper-1"
 - `[>role]` - Static (directives + variables at parse time)
 - `[>>role]` - Input ({{input}} replaced per message)
 - Directives: `{{file:path}}`, `{{exec:command}}` (recursive, 10-level limit)
-- Variables: `{{$agent}}`, `{{$user}}`, `{{$session}}`, `{{$timestamp}}`, etc.
+- Variables: `{{$agent}}`, `{{$user}}`, `{{$session}}`, `{{$timestamp}}`, `{{$date}}`, `{{$now}}`, etc.
 - Nested directives: `{{file:path/{{$user}}/notes.md}}` (variables in paths)
 
 **tools/*.toml:**
@@ -143,7 +143,7 @@ Two-phase pipeline in `internal/resolution/`:
 
 2. **Variables** (substituteVariables):
    - Detection: `:` = directive, no `:` = variable
-   - System ($ prefix): `{{$agent}}`, `{{$agentpath}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$interface}}`, `{{$timestamp}}`, `{{$date}}`, `{{$model}}`, `{{$provider}}`
+   - System ($ prefix): `{{$agent}}`, `{{$agentpath}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$interface}}`, `{{$timestamp}}`, `{{$date}}`, `{{$now}}`, `{{$model}}`, `{{$provider}}`
    - User (no prefix): `{{var}}` (future use)
 
 Used by: prompt parser, tool return values

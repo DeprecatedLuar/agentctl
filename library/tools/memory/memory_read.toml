@@ -1,0 +1,16 @@
+command = "./scripts/memory_read.sh"
+description = """
+Read a memory file.
+
+Available files:
+- core.md: your always-loaded memory snapshot
+"""
+
+[user]
+type = "string"
+return = "{{$user}}"
+
+[file]
+description = "Filename to read (e.g., core.md)"
+type = "string"
+required = true

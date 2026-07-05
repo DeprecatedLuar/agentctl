@@ -13,15 +13,16 @@ import (
 
 const (
 	// Directory names
-	configDir     = "config"
-	promptsDir    = "prompts"
-	toolsDir      = "tools"
-	initDataDir   = ".data"
+	configDir   = "config"
+	promptsDir  = "prompts"
+	toolsDir    = "tools"
+	initDataDir = ".data"
 
 	// File names
 	initAgentConfig   = "agent.toml"
 	contactsFile      = "contacts.toml"
 	defaultPromptFile = "default.prompt"
+	systemPromptFile  = "system.md"
 	initEnvFile       = ".env"
 	initGitignoreFile = ".gitignore"
 	toolExampleFile   = "example.toml"
@@ -66,12 +67,13 @@ func HandleInit(args []string) error {
 
 	// Write template files
 	files := map[string]string{
-		filepath.Join(configDir, initAgentConfig):       templates.AgentToml,
-		filepath.Join(initDataDir, contactsFile):        substituteUsername(templates.ContactsToml, username),
-		filepath.Join(promptsDir, defaultPromptFile):    templates.Prompt,
+		filepath.Join(configDir, initAgentConfig):    templates.AgentToml,
+		filepath.Join(initDataDir, contactsFile):     substituteUsername(templates.ContactsToml, username),
+		filepath.Join(promptsDir, defaultPromptFile): templates.Prompt,
+		filepath.Join(promptsDir, systemPromptFile):  templates.SystemMd,
 		filepath.Join(toolsDir, toolExampleFile):     templates.ToolExample,
-		initEnvFile:                                   templates.EnvTemplate,
-		initGitignoreFile:                             templates.Gitignore,
+		initEnvFile:                                  templates.EnvTemplate,
+		initGitignoreFile:                            templates.Gitignore,
 	}
 
 	var createdFiles, skippedFiles []string
