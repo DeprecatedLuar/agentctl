@@ -1,7 +1,7 @@
 command = "./scripts/memory_edit.sh"
 description = """
 Replace a string in a memory file. Read the file first to get exact strings.
-core.md is capped at 2000 characters — compress when full.
+Call memory_list first to see available files and their char limits.
 """
 
 [user]
@@ -9,7 +9,7 @@ type = "string"
 return = "{{$user}}"
 
 [file]
-description = "Filename to edit"
+description = "Name of the memory file to edit (without .md extension, e.g. core)"
 type = "string"
 required = true
 

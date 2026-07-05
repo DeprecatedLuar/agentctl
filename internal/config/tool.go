@@ -56,25 +56,13 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []Validation
 	var filesToLoad []string
 
 	if len(toolNames) == 0 {
-		// Auto-discover: recursively load all .toml files except example.toml
-		err := filepath.WalkDir(toolsPath, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			// Skip directories
-			if d.IsDir() {
-				return nil
-			}
-			// Skip example.toml at any depth
-			if d.Name() == exampleToolFile {
-				return nil
-			}
-			// Collect .toml files with their full path
-			if strings.HasSuffix(d.Name(), tomlExtension) {
-				filesToLoad = append(filesToLoad, path)
-			}
-			return nil
-		})
+		// Auto-discover: recursively load all .toml files except example.toml.
+		// Walks manually (not filepath.WalkDir) because WalkDir never follows
+		// symlinked directories - it reports them as leaf entries and skips
+		// their contents, which breaks the common pattern of symlinking a
+		// shared tool folder (e.g. tools/memory -> some/shared/library) into
+		// an agent's tools/ directory.
+		err := walkToolsDir(toolsPath, make(map[string]bool), &filesToLoad)
 		if err != nil {
 			issues = append(issues, ValidationIssue{
 				Type:    IssueError,
@@ -119,6 +107,54 @@ func LoadTools(agentPath string, toolNames []string) ([]ToolConfig, []Validation
 	}
 
 	return tools, issues
+}
+
+// walkToolsDir recursively collects .toml files under root, following
+// symlinked directories (unlike filepath.WalkDir). visited tracks resolved
+// real paths already walked, to guard against symlink cycles.
+func walkToolsDir(root string, visited map[string]bool, filesToLoad *[]string) error {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	if visited[realRoot] {
+		return nil
+	}
+	visited[realRoot] = true
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+
+		isDir := entry.IsDir()
+		if entry.Type()&os.ModeSymlink != 0 {
+			info, err := os.Stat(path) // follows the symlink
+			if err != nil {
+				continue // broken symlink, skip
+			}
+			isDir = info.IsDir()
+		}
+
+		if isDir {
+			if err := walkToolsDir(path, visited, filesToLoad); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if entry.Name() == exampleToolFile {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), tomlExtension) {
+			*filesToLoad = append(*filesToLoad, path)
+		}
+	}
+
+	return nil
 }
 
 func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue) {

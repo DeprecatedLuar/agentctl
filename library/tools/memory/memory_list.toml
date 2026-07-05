@@ -1,0 +1,2 @@
+command = "./scripts/memory_list.sh"
+description = "List available memory files, with their descriptions and char limits. Call this before memory_read or memory_edit."

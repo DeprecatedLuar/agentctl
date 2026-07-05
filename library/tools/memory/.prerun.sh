@@ -1,14 +1,39 @@
 #!/usr/bin/env bash
-# Memory tool prerun - ensure core.md exists, and that default.prompt
-# loads it via a [>user] section.
+# Memory tool prerun - self-heal every file declared in memory.config for
+# this user, and ensure default.prompt loads core.md via a [>user] section.
 
 mkdir -p .data/tools/memory/"$USER"
+mkdir -p config/tools
 
-CORE_FILE=".data/tools/memory/$USER/core.md"
+CONFIG_FILE="config/tools/memory.conf"
 
-if [ ! -f "$CORE_FILE" ]; then
-  echo "#PLACEHOLDER" > "$CORE_FILE"
+if [ ! -f "$CONFIG_FILE" ]; then
+  cat > "$CONFIG_FILE" <<'EOF'
+# memory.conf — declares every memory file for this agent.
+# .prerun.sh self-heals these into existence per user (as <name>.md).
+# format: <name>: <max_chars, 0=unlimited>: <description>
+
+core: 2000: your always-loaded memory snapshot
+EOF
 fi
+
+while IFS=':' read -r name limit desc; do
+  name="$(echo "$name" | xargs)"
+  [ -z "$name" ] && continue
+  case "$name" in \#*) continue ;; esac
+
+  case "$name" in
+    *[!a-zA-Z0-9_-]*)
+      echo "WARN: skipping invalid entry in config/tools/memory.conf: '${name}' (name must be alphanumeric/underscore/hyphen, no spaces — likely a missing ':')" >&2
+      continue
+      ;;
+  esac
+
+  MEM_FILE=".data/tools/memory/$USER/${name}.md"
+  if [ ! -f "$MEM_FILE" ]; then
+    echo "#PLACEHOLDER" > "$MEM_FILE"
+  fi
+done < "$CONFIG_FILE"
 
 # --- Ensure default.prompt injects memory into a [>user] section ---
 
