@@ -4,10 +4,24 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Go](https://img.shields.io/badge/go-1.21+-00ADD8)
 
-Framework for composable AI agents and harnesses. Tools are bash scripts with variable substitution. Agents call tools. Tools execute shell commands. Commands can call other agents. Build complex behavior from simple primitives. Deploy in minutes.
+Framework for composable, portable AI agents and harnesses. Agents and tools are folders: copy either to any machine with agentctl installed and it runs. Tools are bash scripts with variable substitution. Agents call tools. Tools execute shell commands. Commands can call other agents.
 
 > [!CAUTION]
 > **Experimental software** - Under active development. Build from source. Expect breaking changes between commits.
+
+## Installation
+
+**Requires:** Go 1.21+
+
+```bash
+# Clone and build from source
+git clone https://github.com/DeprecatedLuar/agentctl
+cd agentctl
+go build -o agentctl ./cmd/agentctl
+
+# Install to PATH
+cp agentctl ~/bin/  # or /usr/local/bin
+```
 
 ## Quick Start
 
@@ -28,20 +42,6 @@ agentctl chat "hello"
 
 > [!TIP]
 > Default config uses `openrouter/free` model. List free models with tool support: `agentctl models openrouter --free --tools`
-
-## Installation
-
-**Requires:** Go 1.21+
-
-```bash
-# Clone and build from source
-git clone https://github.com/DeprecatedLuar/agentctl
-cd agentctl
-go build -o agentctl ./cmd/agentctl
-
-# Install to PATH
-cp agentctl ~/bin/  # or /usr/local/bin
-```
 
 ## Commands
 

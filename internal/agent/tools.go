@@ -108,17 +108,16 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 			out = truncate(out, toolPreviewLen)
 		}
 
-		fields := []any{"args", formatArgs(substitutions)}
+		fields := []any{"kind", logger.KindTool, "args", formatArgs(substitutions)}
 		if debug {
 			fields = append(fields, "command", cmd)
 		}
-		fields = append(fields, "exit", exitCode, "out", out)
+		fields = append(fields, "out", out, "exit", exitCode)
 
 		if exitCode != 0 {
 			fields = append(fields, "stderr", stderr)
 			lg.Warn(tool.Name, fields...)
 		} else {
-			fields = append([]any{"kind", logger.KindTool}, fields...)
 			lg.Info(tool.Name, fields...)
 		}
 	}

@@ -21,11 +21,11 @@ const (
 	// no reason to give the request/response legs different colors.
 	colorInfo = "\033[38;5;111m"
 
-	colorTool = "\033[38;5;216m"
+	colorTool = "\033[38;5;108m"
 	colorSent = "\033[38;5;183m"
 
 	colorDebug = "\033[38;5;250m"
-	colorWarn  = "\033[38;5;229m"
+	colorWarn  = "\033[38;5;216m"
 	colorError = "\033[38;5;210m"
 )
 
@@ -50,39 +50,58 @@ func (h *PrettyHandler) format(r slog.Record, kind string, attrs []slog.Attr) st
 	return h.formatPlain(r, kind, attrs)
 }
 
+// toolBreakBefore marks attrs that start a new visual block in the tool
+// layout (see formatTTY): a blank line goes in before them so args and
+// output don't blur together.
+var toolBreakBefore = map[string]bool{"out": true}
+
 func (h *PrettyHandler) formatTTY(r slog.Record, kind string, attrs []slog.Attr) string {
 	color := tagColor(r.Level, kind)
-	tagStr := fmt.Sprintf("%s[%s]%s", color, tagLabel(r.Level, kind), colorReset)
 	timeStr := r.Time.Format("15:04:05")
 
-	output := fmt.Sprintf("%s %s%s%s %s%s%s",
-		tagStr,
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s[%s]%s %s%s%s %s%s%s",
+		color, tagLabel(r.Level, kind), colorReset,
 		colorGray, timeStr, colorReset,
 		color, r.Message, colorReset,
 	)
 
-	for _, a := range attrs {
-		output += fmt.Sprintf(" %s%s%s=%s%v%s",
-			colorCyan, a.Key, colorReset,
-			color, a.Value, colorReset,
-		)
+	if kind == KindTool {
+		// Tool calls carry name + long args/output: every attr gets its own
+		// indented row, with a blank line before output so args and results
+		// don't blur together.
+		for _, a := range attrs {
+			if toolBreakBefore[a.Key] {
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "\n  %s%-4s%s %v", colorCyan, a.Key, colorReset, a.Value)
+		}
+		b.WriteString("\n")
+		return b.String()
 	}
 
-	return output + "\n"
+	for _, a := range attrs {
+		fmt.Fprintf(&b, " %s%s%s=%v", colorCyan, a.Key, colorReset, a.Value)
+	}
+	b.WriteString("\n")
+
+	return b.String()
 }
 
 func (h *PrettyHandler) formatPlain(r slog.Record, kind string, attrs []slog.Attr) string {
-	output := fmt.Sprintf("time=%s level=%s msg=%q",
+	var b strings.Builder
+	fmt.Fprintf(&b, "time=%s level=%s msg=%q",
 		r.Time.Format("2006-01-02T15:04:05.000Z07:00"),
 		tagLabel(r.Level, kind),
 		r.Message,
 	)
 
 	for _, a := range attrs {
-		output += fmt.Sprintf(" %s=%v", a.Key, a.Value)
+		fmt.Fprintf(&b, " %s=%v", a.Key, a.Value)
 	}
 
-	return output + "\n"
+	b.WriteString("\n")
+	return b.String()
 }
 
 // tagLabel is the text shown inside the brackets — the kind name (e.g. CALL)

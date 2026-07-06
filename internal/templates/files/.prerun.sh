@@ -6,6 +6,7 @@
 for dir in tools/*/; do
     [ -f "${dir}.prerun.sh" ] && source "${dir}.prerun.sh" && continue
     [ -f "${dir}prerun.sh" ] && source "${dir}prerun.sh"
+    true
 done
 
 # Add your custom setup logic below
