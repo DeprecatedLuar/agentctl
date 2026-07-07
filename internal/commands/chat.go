@@ -44,6 +44,7 @@ type chatRequest struct {
 	Deliver []string `json:"deliver,omitempty"`
 	Inject  bool     `json:"inject,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
+	Raw     bool     `json:"raw,omitempty"`
 }
 
 type chatResponse struct {

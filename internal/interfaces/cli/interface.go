@@ -52,6 +52,7 @@ type CLIRequest struct {
 	Deliver []string `json:"deliver,omitempty"`
 	Inject  bool     `json:"inject,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
+	Raw     bool     `json:"raw,omitempty"`
 }
 
 // CLIResponse represents a response to the CLI client
@@ -287,6 +288,7 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 		Deliver:     req.Deliver,
 		Inject:      req.Inject,
 		Tools:       req.Tools,
+		Raw:         req.Raw,
 	}
 
 	// Log message received

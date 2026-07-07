@@ -11,6 +11,7 @@ func RootPage() *gohelp.Page {
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
 			gohelp.Item("chat <message>", "Send message to running agent daemon", "agentctl chat \"hello\" -a my-agent"),
 			gohelp.Item("inject <content>", "Inject a turn into a session without running agent", "agentctl inject \"response\" --role assistant --session 20250614_abc -a my-agent"),
+			gohelp.Item("deliver <message>", "Deliver literal text to channels without running the agent", "agentctl deliver \"Reminder: standup\" --deliver telegram --inject"),
 			gohelp.Item("toolrun <name>", "Execute a tool manually with parameters", "agentctl toolrun create_schedule --name=test --cron=\"0 * * * *\" --message=\"Test\""),
 			gohelp.Item("getagent", "Print current agent name", "agentctl getagent"),
 			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
@@ -24,6 +25,12 @@ func RootPage() *gohelp.Page {
 			gohelp.Item("--inject", "Also inject the delivered response into the target session(s)"),
 			gohelp.Item("--tools <list>", "Whitelist tools for this run (comma-separated)"),
 			gohelp.Item("--debug", "Show debug information including session file path"),
+		).
+		Section("Deliver Flags",
+			gohelp.Item("--deliver <list>", "Channels to deliver the literal message to (comma-separated, required)"),
+			gohelp.Item("--inject", "Also inject the message as an assistant turn into the target session(s)"),
+			gohelp.Item("--user, -u <id>", "User ID for bare-interface channel resolution (falls back to $AGENTCTL_USER)"),
+			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
 		).
 		Section("Inject Flags",
 			gohelp.Item("--role <assistant|user>", "Role of the injected turn (required)"),

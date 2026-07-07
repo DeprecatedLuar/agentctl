@@ -248,10 +248,15 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 		}
 	}
 
-	// Run agent and get response
-	response, err := o.handleMessageInternalWithTools(userID, sessionID, opts.Interface, opts.Content, opts.Tools)
-	if err != nil {
-		return "", err
+	// Run agent and get response, unless Raw delivers Content verbatim
+	var response string
+	if opts.Raw {
+		response = opts.Content
+	} else {
+		response, err = o.handleMessageInternalWithTools(userID, sessionID, opts.Interface, opts.Content, opts.Tools)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	// Handle channel delivery

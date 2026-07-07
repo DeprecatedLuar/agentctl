@@ -53,6 +53,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "deliver":
+		if err := commands.HandleDeliver(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "help":
 		if err := help.HandleHelp(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
