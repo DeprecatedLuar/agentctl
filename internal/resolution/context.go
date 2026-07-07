@@ -9,7 +9,8 @@ import (
 // Context holds all runtime information for template processing.
 // Used for both directive processing and variable substitution.
 type Context struct {
-	AgentPath string            // Absolute path to agent folder
+	AgentPath string            // Absolute path to agent folder (fixed root, used for .env/config lookups)
+	BaseDir   string            // Directory that relative {{file:}}/{{exec:}} paths in the content currently being processed resolve against
 	AgentName string            // Base name of agent folder
 	UserID    string            // User identity ID (e.g., "alice" or "cli:luar")
 	Username  string            // Display name for user
@@ -28,6 +29,7 @@ type Context struct {
 func NewContext(agentPath, userID, username, sessionID, iface, model, provider string, configEnv map[string]string) Context {
 	return Context{
 		AgentPath: agentPath,
+		BaseDir:   agentPath,
 		AgentName: filepath.Base(agentPath),
 		UserID:    userID,
 		Username:  username,
@@ -47,6 +49,7 @@ func NewContext(agentPath, userID, username, sessionID, iface, model, provider s
 func NewValidationContext(agentPath string) Context {
 	return Context{
 		AgentPath: agentPath,
+		BaseDir:   agentPath,
 		AgentName: filepath.Base(agentPath),
 		// All other fields: zero values (empty strings, zero time)
 	}

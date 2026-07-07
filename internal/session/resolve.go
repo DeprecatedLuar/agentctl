@@ -7,6 +7,20 @@ import (
 	"strings"
 )
 
+// MintSession generates a new session ID, points userID+iface at it, and
+// creates its backing file so it's immediately writable/injectable even
+// before any turn has been saved to it.
+func MintSession(store SessionStore, userID, iface string) (string, error) {
+	sessionID := NewSessionID()
+	if err := store.SetLast(userID, iface, sessionID); err != nil {
+		return "", fmt.Errorf("failed to set last session: %w", err)
+	}
+	if err := store.CreateSession(userID, sessionID); err != nil {
+		return "", fmt.Errorf("failed to create session file: %w", err)
+	}
+	return sessionID, nil
+}
+
 // Resolve is called by interfaces on every incoming message.
 // 1. Lazy migration: migrate this contact if they have an unlinked folder
 // 2. Calls ResolveUser to get userId
@@ -36,13 +50,16 @@ func Resolve(store SessionStore, agentFolder, iface, platformID, displayName, us
 	}
 
 	if sessionID == "" {
-		// No existing session - generate new one
-		sessionID = NewSessionID()
-	}
-
-	// Step 4: Persist as last session
-	if err := store.SetLast(userID, iface, sessionID); err != nil {
-		return ResolvedSession{}, fmt.Errorf("failed to set last session: %w", err)
+		// No existing session - mint one (also creates its backing file)
+		sessionID, err = MintSession(store, userID, iface)
+		if err != nil {
+			return ResolvedSession{}, err
+		}
+	} else {
+		// Step 4: Persist as last session
+		if err := store.SetLast(userID, iface, sessionID); err != nil {
+			return ResolvedSession{}, fmt.Errorf("failed to set last session: %w", err)
+		}
 	}
 
 	return ResolvedSession{
@@ -71,10 +88,10 @@ func ResolveExplicit(store SessionStore, agentFolder, userID, sessionID, iface s
 		}
 
 		if lastSessionID == "" {
-			// No existing session - generate new one
-			lastSessionID = NewSessionID()
-			if err := store.SetLast(userID, iface, lastSessionID); err != nil {
-				return ResolvedSession{}, fmt.Errorf("failed to set last session: %w", err)
+			// No existing session - mint one (also creates its backing file)
+			lastSessionID, err = MintSession(store, userID, iface)
+			if err != nil {
+				return ResolvedSession{}, err
 			}
 		}
 
@@ -165,10 +182,11 @@ func ResolveChannel(store SessionStore, agentFolder, channelStr, currentUserID s
 	}
 
 	if sessionID == "" {
-		// No existing session - generate new one (consistent with Resolve behavior)
-		sessionID = NewSessionID()
-		if err := store.SetLast(userID, iface, sessionID); err != nil {
-			return "", "", "", fmt.Errorf("failed to set last session: %w", err)
+		// No existing session - mint one (also creates its backing file,
+		// consistent with Resolve behavior)
+		sessionID, err = MintSession(store, userID, iface)
+		if err != nil {
+			return "", "", "", err
 		}
 	}
 

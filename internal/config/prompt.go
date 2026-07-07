@@ -189,6 +189,7 @@ func processContent(content string, ctx resolution.Context, processVariables boo
 		// Only process directives, preserve variables (for input section)
 		processedContent, err = resolution.Process(content, resolution.Context{
 			AgentPath: ctx.AgentPath,
+			BaseDir:   ctx.BaseDir,
 			// All other fields empty - variables won't be substituted
 		})
 	}

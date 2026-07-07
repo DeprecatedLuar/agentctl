@@ -50,7 +50,7 @@ agentctl chat "hello"
 | `init [path]` | Create agent folder with templates | `agentctl init my-agent` |
 | `run [path]` | Start daemon with configured interfaces | `agentctl run my-agent` |
 | `chat` | Send message to running daemon | `agentctl chat -m "analyze logs" -a my-agent` |
-| `inject` | Inject turn into session without running agent | `agentctl inject -m "response" --role assistant --session 20260614_abc` |
+| `inject [role]` | Inject turn into session without running agent | `agentctl inject assistant -m "response" --session 20260614_abc` |
 | `deliver <channel>` | Deliver literal text to channels without running the agent | `agentctl deliver telegram -m "Reminder: standup" --inject` |
 | `toolrun <name>` | Execute tool manually with parameters | `agentctl toolrun weather --city=London` |
 | `getagent` | Print current agent name from registry | `agentctl getagent` |
@@ -70,21 +70,22 @@ agentctl chat "hello"
 - `-u, --user <id>` - User ID for session (default: system username)
 - `-s, --session <id>` - Session ID (default: last session or new)
 - `--deliver <list>` - Deliver response to channels (comma-separated: `telegram,cli`)
-- `--inject` - Also inject the delivered response into the target session(s)
+- `--inject [role]` - Also inject the delivered response into the target session(s); role is `assistant` (default), `user`, or `system`
 - `--tools <list>` - Whitelist tools for this run (comma-separated, overrides agent.toml)
 - `--debug` - Show session file path in output
 - Env vars: `AGENTCTL_USER`, `AGENTCTL_SESSION`, `AGENTCTL_MESSAGE` (flags/args take priority)
 
 **`inject` command:**
+- `[role]` - Positional; role of the injected turn: `assistant` (default), `user`, or `system`
 - `-m, --message <text>` - Content to inject (required; falls back to `AGENTCTL_MESSAGE`)
-- `--role <assistant|user>` - Role of injected turn (required)
 - `--session <id>` - Session ID to inject into (required)
 - `-a, --agent <path>` - Agent folder path (default: current dir)
 
 **`deliver` command:**
 - `<channel[,channel...]>` - Positional; channels to deliver the literal message to (required)
 - `-m, --message <text>` - Message to deliver (required; falls back to `AGENTCTL_MESSAGE`)
-- `--inject` - Also inject the message as an assistant turn into the target session(s)
+- `--inject [role]` - Also inject the message into the target session(s); role is `assistant` (default), `user`, or `system`
+- `--note <text>` - System-role turn injected immediately before the delivered turn, never sent to the channel itself (requires `--inject`)
 - `-u, --user <id>` - User ID for bare-interface channel resolution
 - `-a, --agent <path>` - Agent folder path (default: current dir)
 - Env vars: `AGENTCTL_USER`, `AGENTCTL_MESSAGE` (flags/args take priority)
@@ -642,6 +643,9 @@ agentctl chat -m "broadcast" --deliver telegram,cli
 # Deliver AND inject into target session (preserves history)
 agentctl chat -m "update" --deliver telegram --inject
 
+# Inject as a specific role instead of the assistant default
+agentctl chat -m "update" --deliver telegram --inject system
+
 # Specify user explicitly (user@interface format)
 agentctl chat -m "message" --deliver alice@telegram
 ```
@@ -653,7 +657,7 @@ agentctl chat -m "message" --deliver alice@telegram
 
 **Behavior:**
 - `--deliver` alone: Delivers response without modifying target session
-- `--deliver` with `--inject`: Delivers AND adds assistant turn to target session
+- `--deliver` with `--inject [role]`: Delivers AND adds a turn (role defaults to `assistant`) to target session
 - Response shown on CLI regardless of delivery targets
 - Delivery failures logged as warnings, don't break request
 
@@ -671,12 +675,16 @@ agentctl deliver telegram,cli -m "Reminder: standup in 5 minutes"
 # Deliver AND inject into target session
 agentctl deliver telegram -m "Reminder: standup in 5 minutes" --inject
 
+# Deliver AND inject, with a system-role note attached for model context
+# (the note is never sent to the channel, only saved to session history)
+agentctl deliver telegram -m "Reminder: standup in 5 minutes" --inject --note "Scheduled message delivered at 09:00 2026-07-08."
+
 # Multi-line content without shell quoting issues
 AGENTCTL_MESSAGE="line one
 line two" agentctl deliver telegram --user alice
 ```
 
-Channel is a positional argument here (unlike `chat`'s optional `--deliver` flag) since delivering *somewhere* is the entire point of `deliver`. Same channel syntax and `--inject` semantics as `chat`'s delivery flags — `deliver` just skips the agent call and treats the message as the response verbatim.
+Channel is a positional argument here (unlike `chat`'s optional `--deliver` flag) since delivering *somewhere* is the entire point of `deliver`. Same channel syntax and `--inject [role]` semantics as `chat`'s delivery flags — `deliver` just skips the agent call and treats the message as the response verbatim. `--note` requires `--inject` (errors otherwise) since a system note only makes sense alongside an injected turn.
 
 ### Tool Whitelisting
 
@@ -701,14 +709,17 @@ agentctl chat "search" --tools "web_search"
 Manually add turns to sessions without running agent:
 
 ```bash
-# Inject assistant response
-agentctl inject "Here's the data" --role assistant --session 20260614_150000_abc
+# Inject assistant response (role omitted, defaults to assistant)
+agentctl inject -m "Here's the data" --session 20260614_150000_abc
 
 # Inject user message
-agentctl inject "follow up question" --role user --session 20260614_150000_abc
+agentctl inject user -m "follow up question" --session 20260614_150000_abc
+
+# Inject a model-only system note
+agentctl inject system -m "Scheduled message delivered at 09:00 2026-07-08." --session 20260614_150000_abc
 
 # Specify agent
-agentctl inject "response" --role assistant --session 20260614_abc -a my-agent
+agentctl inject assistant -m "response" --session 20260614_abc -a my-agent
 ```
 
 **Use cases:**

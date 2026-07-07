@@ -47,4 +47,8 @@ type SessionStore interface {
 
 	// SessionExists checks if a session file exists
 	SessionExists(userID, sessionID string) bool
+
+	// CreateSession ensures a session file exists on disk with its metadata
+	// line, without appending any message. No-op if the file already exists.
+	CreateSession(userID, sessionID string) error
 }

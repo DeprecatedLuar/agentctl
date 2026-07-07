@@ -178,6 +178,7 @@ func TestProcess_WithDirectivesAndVariables(t *testing.T) {
 
 	ctx := Context{
 		AgentPath: tmpDir,
+		BaseDir:   tmpDir,
 		AgentName: "test-agent",
 		UserID:    "bob",
 		Timestamp: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
@@ -405,6 +406,7 @@ func TestProcess_NestedDirectives(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := Context{
 				AgentPath: tmpDir,
+				BaseDir:   tmpDir,
 				AgentName: "test-agent",
 				UserID:    tt.userID,
 				Timestamp: time.Now(),

@@ -25,12 +25,6 @@ func HandleInject(args []string) error {
 			}
 			path = args[i+1]
 			i += 2
-		case "--role":
-			if i+1 >= len(args) {
-				return fmt.Errorf("--role requires a value (assistant or user)")
-			}
-			role = args[i+1]
-			i += 2
 		case flagSession, flagSessionS:
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s requires an id", flagSession)
@@ -45,7 +39,14 @@ func HandleInject(args []string) error {
 			contentGiven = true
 			i += 2
 		default:
-			return fmt.Errorf("unexpected argument: %s", args[i])
+			if len(args[i]) > 0 && args[i][0] == '-' {
+				return fmt.Errorf("unexpected argument: %s", args[i])
+			}
+			if role != "" {
+				return fmt.Errorf("unexpected argument: %s", args[i])
+			}
+			role = args[i]
+			i++
 		}
 	}
 
@@ -54,16 +55,16 @@ func HandleInject(args []string) error {
 	if err != nil {
 		return err
 	}
-	if role == "" {
-		return fmt.Errorf("--role is required")
-	}
 	if sessionID == "" {
 		return fmt.Errorf("--session is required")
 	}
 
-	// Validate role value
-	if role != "assistant" && role != "user" {
-		return fmt.Errorf("--role must be 'assistant' or 'user', got: %s", role)
+	// Role defaults to assistant when omitted
+	if role == "" {
+		role = roleAssistant
+	}
+	if !isValidRole(role) {
+		return fmt.Errorf("role must be 'assistant', 'user', or 'system', got: %s", role)
 	}
 
 	// Resolve agent path

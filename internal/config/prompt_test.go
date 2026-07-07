@@ -41,6 +41,7 @@ Var: {{myvar}}
 	// Parse prompt
 	ctx := resolution.Context{
 		AgentPath: tmpDir,
+		BaseDir:   tmpDir,
 		AgentName: "test",
 		UserVars:  map[string]string{"myvar": "REPLACED"},
 	}
@@ -96,7 +97,7 @@ func TestDirectiveErrors(t *testing.T) {
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
 		os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644)
 
-		ctx := resolution.Context{AgentPath: tmpDir}
+		ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
 	_, issues := Parse(tmpDir, ctx)
 
 		hasError := false
@@ -121,7 +122,7 @@ Result: {{exec:./fail.sh}}`
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
 		os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644)
 
-		ctx := resolution.Context{AgentPath: tmpDir}
+		ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
 	prompt, _ := Parse(tmpDir, ctx)
 
 		if prompt == nil || len(prompt.Static) == 0 {
@@ -135,4 +136,47 @@ Result: {{exec:./fail.sh}}`
 			t.Errorf("failing script should inject 'exit N: stderr' format, got: %s", content)
 		}
 	})
+}
+
+// TestDirectives_FileRelativeNesting verifies that a {{file:}} directive loaded from
+// within another file resolves relative paths against that file's own directory
+// (not the agent root), while the top-level prompts/default.prompt itself still
+// falls back to agent root.
+func TestDirectives_FileRelativeNesting(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// sibling.md lives next to the file that includes it, under prompts/, not agent root.
+	os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "system.md"), []byte("Included: {{file:./sibling.md}}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "sibling.md"), []byte("sibling content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// A same-named file at agent root proves resolution isn't falling back there.
+	if err := os.WriteFile(filepath.Join(tmpDir, "sibling.md"), []byte("WRONG agent-root content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	promptContent := `[>system]
+{{file:./prompts/system.md}}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
+	prompt, issues := Parse(tmpDir, ctx)
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			t.Fatalf("Parse error: %s", issue.Message)
+		}
+	}
+
+	content := prompt.Static[0].Content
+	if !strings.Contains(content, "sibling content") {
+		t.Errorf("expected nested {{file:./sibling.md}} to resolve relative to prompts/ dir, got: %s", content)
+	}
+	if strings.Contains(content, "WRONG agent-root content") {
+		t.Errorf("nested {{file:./sibling.md}} incorrectly resolved against agent root, got: %s", content)
+	}
 }

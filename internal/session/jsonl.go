@@ -499,3 +499,48 @@ func (s *JSONLStore) SessionExists(userID, sessionID string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// CreateSession ensures a session file exists on disk with its metadata line,
+// without appending any message. No-op if the file already exists. Used so a
+// freshly-minted session ID is immediately writable/injectable even before
+// any turn has been saved to it.
+func (s *JSONLStore) CreateSession(userID, sessionID string) error {
+	lock := s.getSessionLock(userID, sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	sessionDir := filepath.Join(s.AgentFolder, sessionsDir, userID)
+	if err := os.MkdirAll(sessionDir, sessionDirPermissions); err != nil {
+		return fmt.Errorf("failed to create session directory: %w", err)
+	}
+
+	path := s.sessionFilePath(userID, sessionID)
+	if _, err := os.Stat(path); err == nil {
+		return nil // already exists
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, sessionFilePermissions)
+	if err != nil {
+		return fmt.Errorf("failed to create session file: %w", err)
+	}
+	defer file.Close()
+
+	meta := metaLine{
+		Type:      metaType,
+		Title:     "",
+		CreatedAt: time.Now().Unix(),
+		Interface: "",
+		UserID:    userID,
+	}
+
+	metaData, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	if _, err := file.Write(append(metaData, '\n')); err != nil {
+		return fmt.Errorf("failed to write metadata: %w", err)
+	}
+
+	return nil
+}

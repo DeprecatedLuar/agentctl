@@ -157,18 +157,22 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 
 	// Save messages to session
 	if agentCfg.Memory.MaxMessages > 0 {
-		// Check if this is a new session BEFORE saving (file existence = first exchange indicator)
-		isNewSession := !o.SessionStore.SessionExists(userID, sessionID)
+		// Check BEFORE saving whether a title is still needed. Gated on the
+		// title itself (not file existence) since a session's file may
+		// already exist without a real exchange yet - e.g. pre-created by
+		// /new or a cold-start channel delivery.
+		meta, _ := o.SessionStore.GetMeta(userID, sessionID)
+		needsTitle := meta.Title == ""
 		if o.Debug {
-			o.Logger.Debug("session check", "is_new", isNewSession, "session", sessionID)
+			o.Logger.Debug("session check", "needs_title", needsTitle, "session", sessionID)
 		}
 
 		// Save user message and assistant response
 		_ = o.SessionStore.Save(userID, sessionID, "user", content)
 		_ = o.SessionStore.Save(userID, sessionID, "assistant", response)
 
-		// Auto-generate title after first exchange (async, non-blocking)
-		if isNewSession {
+		// Auto-generate title after first real exchange (async, non-blocking)
+		if needsTitle {
 			if o.Debug {
 				o.Logger.Debug("launching title generation", "session", sessionID)
 			}
@@ -261,7 +265,11 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 
 	// Handle channel delivery
 	if len(opts.Deliver) > 0 {
-		if err := o.deliverToChannels(userID, opts.Deliver, opts.Inject, response); err != nil {
+		role := opts.Role
+		if role == "" {
+			role = "assistant"
+		}
+		if err := o.deliverToChannels(userID, opts.Deliver, opts.Inject, role, opts.Note, response); err != nil {
 			o.Logger.Warn("channel delivery failed", "error", err)
 			// Don't fail the whole request - user still gets their response
 		}
@@ -270,8 +278,10 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 	return response, nil
 }
 
-// deliverToChannels delivers response to specified channels, optionally injecting into the target session
-func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string, inject bool, response string) error {
+// deliverToChannels delivers response to specified channels, optionally injecting into the target session.
+// When inject and note are both set, a system-role turn with the note text is injected immediately
+// before the response turn, so the model has context without the note ever reaching the channel.
+func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string, inject bool, role, note, response string) error {
 	if o.Dispatcher == nil {
 		return fmt.Errorf("dispatcher not configured")
 	}
@@ -299,7 +309,12 @@ func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string
 		}
 
 		if inject {
-			if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, "assistant", response); err != nil {
+			if note != "" {
+				if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, "system", note); err != nil {
+					o.Logger.Warn("failed to inject system note", "channel", channelStr, "session", targetSessionID, "error", err)
+				}
+			}
+			if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, role, response); err != nil {
 				o.Logger.Warn("failed to inject turn", "channel", channelStr, "session", targetSessionID, "error", err)
 			} else if o.Debug {
 				o.Logger.Debug("injected", "channel", channelStr, "user", userID, "session", targetSessionID)
@@ -396,18 +411,22 @@ func (o *Orchestrator) handleMessageInternalWithTools(userID, sessionID, iface, 
 
 	// Save messages to session
 	if agentCfg.Memory.MaxMessages > 0 {
-		// Check if this is a new session BEFORE saving (file existence = first exchange indicator)
-		isNewSession := !o.SessionStore.SessionExists(userID, sessionID)
+		// Check BEFORE saving whether a title is still needed. Gated on the
+		// title itself (not file existence) since a session's file may
+		// already exist without a real exchange yet - e.g. pre-created by
+		// /new or a cold-start channel delivery.
+		meta, _ := o.SessionStore.GetMeta(userID, sessionID)
+		needsTitle := meta.Title == ""
 		if o.Debug {
-			o.Logger.Debug("session check", "is_new", isNewSession, "session", sessionID)
+			o.Logger.Debug("session check", "needs_title", needsTitle, "session", sessionID)
 		}
 
 		// Save user message and assistant response
 		_ = o.SessionStore.Save(userID, sessionID, "user", content)
 		_ = o.SessionStore.Save(userID, sessionID, "assistant", response)
 
-		// Auto-generate title after first exchange (async, non-blocking)
-		if isNewSession {
+		// Auto-generate title after first real exchange (async, non-blocking)
+		if needsTitle {
 			if o.Debug {
 				o.Logger.Debug("launching title generation", "session", sessionID)
 			}

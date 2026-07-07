@@ -20,6 +20,8 @@ type MessageOptions struct {
 	// Delivery options
 	Deliver []string // --deliver: channels to deliver the response to
 	Inject  bool     // --inject: also inject the delivered response into the target session
+	Role    string   // role of the injected turn (assistant|user|system), defaults to "assistant"
+	Note    string   // optional system-role note injected immediately before the delivered turn
 	Tools   []string // --tools: whitelist of tools for this run
 	Raw     bool     // true: skip the agent call, treat Content as the response verbatim (used by `deliver`)
 }

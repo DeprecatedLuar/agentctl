@@ -28,6 +28,7 @@ const (
 	flagSessionS = "-s"
 	flagDeliver  = "--deliver"
 	flagInject   = "--inject"
+	flagNote     = "--note"
 	flagTools    = "--tools"
 	flagMessage  = "--message"
 	flagMessageS = "-m"
@@ -45,6 +46,8 @@ type chatRequest struct {
 	Debug   bool     `json:"debug"`
 	Deliver []string `json:"deliver,omitempty"`
 	Inject  bool     `json:"inject,omitempty"`
+	Role    string   `json:"role,omitempty"`
+	Note    string   `json:"note,omitempty"`
 	Tools   []string `json:"tools,omitempty"`
 	Raw     bool     `json:"raw,omitempty"`
 }
@@ -64,6 +67,7 @@ func HandleChat(args []string) error {
 	messageGiven := false
 	debug := false
 	inject := false
+	role := ""
 	var deliver []string
 	var tools []string
 
@@ -96,7 +100,9 @@ func HandleChat(args []string) error {
 			i += 2
 		case flagInject:
 			inject = true
-			i++
+			consumed, resolvedRole := parseInjectArg(args, i)
+			role = resolvedRole
+			i += consumed
 		case flagTools:
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s requires a comma-separated list", flagTools)
@@ -153,6 +159,7 @@ func HandleChat(args []string) error {
 		Debug:   debug,
 		Deliver: deliver,
 		Inject:  inject,
+		Role:    role,
 		Tools:   tools,
 	}
 	encoder := json.NewEncoder(conn)

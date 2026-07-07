@@ -26,6 +26,7 @@ const (
 	agentConfigFile = "config/agent.toml"
 	dataDir         = ".data"
 	logsDir         = "logs"
+	lockFile        = "agent.lock"
 
 	// Interface names
 	interfaceCLI      = "cli"
@@ -159,6 +160,20 @@ func HandleRun(args []string) error {
 	// Ensure .data directory exists
 	if err := os.MkdirAll(filepath.Join(absPath, dataDir), 0755); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
+	}
+
+	// Acquire an exclusive lock to prevent two `run` processes for the same
+	// agent. The kernel releases this automatically on process exit (incl.
+	// crash/kill -9), so no manual cleanup is needed.
+	lockPath := filepath.Join(absPath, dataDir, lockFile)
+	lockFd, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return fmt.Errorf("open lock file: %w", err)
+	}
+	defer lockFd.Close()
+
+	if err := syscall.Flock(int(lockFd.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return fmt.Errorf("agent %q is already running (lock held on %s)", filepath.Base(absPath), lockPath)
 	}
 
 	// Migrate session files from unlinked contact folders to named identities

@@ -323,6 +323,50 @@ func TestJSONLStore_NonExistentSession(t *testing.T) {
 	}
 }
 
+func TestJSONLStore_CreateSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewJSONLStore(tmpDir)
+
+	if store.SessionExists("alice", "20250614_abc123") {
+		t.Fatal("session should not exist before CreateSession")
+	}
+
+	if err := store.CreateSession("alice", "20250614_abc123"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !store.SessionExists("alice", "20250614_abc123") {
+		t.Fatal("session file does not exist after CreateSession")
+	}
+
+	// No messages yet - just the metadata line.
+	messages, err := store.Load("alice", "20250614_abc123", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Errorf("expected no messages right after CreateSession, got %d", len(messages))
+	}
+
+	// This is the exact condition orchestration's title gate relies on:
+	// a session pre-created (e.g. by /new or a cold-start delivery) must
+	// still report an empty title, so title generation isn't skipped when
+	// the user's first real exchange arrives.
+	meta, err := store.GetMeta("alice", "20250614_abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if meta.Title != "" {
+		t.Errorf("expected empty title on a CreateSession-only file, got %q", meta.Title)
+	}
+
+	// Idempotent: calling again on an existing session must not error or
+	// clobber it.
+	if err := store.CreateSession("alice", "20250614_abc123"); err != nil {
+		t.Fatalf("CreateSession should be idempotent, got error: %v", err)
+	}
+}
+
 func TestJSONLStore_LimitMessages(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewJSONLStore(tmpDir)

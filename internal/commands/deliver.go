@@ -21,6 +21,8 @@ func HandleDeliver(args []string) error {
 	text := ""
 	messageGiven := false
 	inject := false
+	role := ""
+	note := ""
 	var deliver []string
 
 	i := 0
@@ -40,7 +42,15 @@ func HandleDeliver(args []string) error {
 			i += 2
 		case flagInject:
 			inject = true
-			i++
+			consumed, resolvedRole := parseInjectArg(args, i)
+			role = resolvedRole
+			i += consumed
+		case flagNote:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires text", flagNote)
+			}
+			note = args[i+1]
+			i += 2
 		case flagMessage, flagMessageS:
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s requires text", flagMessage)
@@ -71,7 +81,10 @@ func HandleDeliver(args []string) error {
 	}
 
 	if len(deliver) == 0 {
-		return fmt.Errorf("usage: agentctl deliver <channel[,channel...]> [--message text] [--inject] [--agent name|path] [--user id]")
+		return fmt.Errorf("usage: agentctl deliver <channel[,channel...]> [--message text] [--inject [role]] [--note text] [--agent name|path] [--user id]")
+	}
+	if note != "" && !inject {
+		return fmt.Errorf("%s requires %s", flagNote, flagInject)
 	}
 
 	// Resolve agent path
@@ -94,6 +107,8 @@ func HandleDeliver(args []string) error {
 		Message: text,
 		Deliver: deliver,
 		Inject:  inject,
+		Role:    role,
+		Note:    note,
 		Raw:     true,
 	}
 	encoder := json.NewEncoder(conn)

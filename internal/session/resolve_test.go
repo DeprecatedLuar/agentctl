@@ -139,6 +139,84 @@ contacts = ["cli:bob", "telegram:987654321"]
 	}
 }
 
+func TestMintSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := NewJSONLStore(tmpDir)
+
+	sessionID, err := MintSession(store, "alice", "telegram")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sessionID == "" {
+		t.Fatal("sessionID is empty")
+	}
+
+	// The file must exist immediately, before any Save call.
+	if !store.SessionExists("alice", sessionID) {
+		t.Fatal("session file does not exist right after MintSession")
+	}
+
+	// GetLast must point at the minted session.
+	last, err := store.GetLast("alice", "telegram")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if last != sessionID {
+		t.Errorf("GetLast = %q, want %q", last, sessionID)
+	}
+
+	// InjectTurn must succeed with no prior Save - this is the exact
+	// failure mode from the live bug (turn silently lost because the
+	// session file didn't exist yet).
+	if err := InjectTurn(store, "alice", sessionID, "assistant", "hello"); err != nil {
+		t.Fatalf("InjectTurn failed on freshly minted session: %v", err)
+	}
+
+	messages, err := store.Load("alice", sessionID, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Content != "hello" {
+		t.Errorf("messages = %v, want single injected turn", messages)
+	}
+}
+
+func TestResolveChannel_ColdStartCreatesSessionFile(t *testing.T) {
+	// Create temp directory
+	tmpDir := t.TempDir()
+
+	identitiesPath := filepath.Join(tmpDir, ".data")
+	if err := os.MkdirAll(identitiesPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	identitiesContent := `
+[[identity]]
+id = "bob"
+contacts = ["cli:bob", "telegram:987654321"]
+`
+	if err := os.WriteFile(filepath.Join(identitiesPath, "contacts.toml"), []byte(identitiesContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewJSONLStore(tmpDir)
+
+	// bob has no prior session at all - this is the cold-start delivery case.
+	userID, _, sessionID, err := ResolveChannel(store, tmpDir, "telegram", "bob")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !store.SessionExists(userID, sessionID) {
+		t.Fatal("session file does not exist right after ResolveChannel's cold-start mint")
+	}
+
+	// InjectTurn must succeed immediately, matching real deliverToChannels usage.
+	if err := InjectTurn(store, userID, sessionID, "assistant", "reminder"); err != nil {
+		t.Fatalf("InjectTurn failed on cold-start resolved session: %v", err)
+	}
+}
+
 func TestLookupPlatformID(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()

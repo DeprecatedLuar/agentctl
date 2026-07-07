@@ -1,0 +1,26 @@
+command = "./scripts/schedule_message.sh"
+description = """
+Schedule a message to be delivered to the user at a specific future
+date and time. Reminders, check-ins or anything that should reach the user
+later. Use autonomously based on context.
+"""
+
+[when]
+description = """
+Time and date in the format 'HH:MM YYYY-MM-DD' (24h clock), e.g. '15:00 2026-07-08'.
+"""
+type = "string"
+required = true
+
+[message]
+description = "The literal text to deliver to the user when the schedule fires."
+type = "string"
+required = true
+
+[user]
+type = "string"
+return = "{{$user}}"
+
+[agent]
+type = "string"
+return = "{{$agentpath}}"

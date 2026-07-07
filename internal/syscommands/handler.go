@@ -37,9 +37,6 @@ func Parse(input string) (*Command, error) {
 // NewSession creates a new session and auto-switches to it
 // Returns session metadata and agent config info
 func NewSession(userID, iface string, store session.SessionStore, agentFolder string) (CommandResult, error) {
-	// Generate new session ID
-	sessionID := session.NewSessionID()
-
 	// Load agent config to get model/provider/memory info
 	agentConfig, issues := config.LoadAgent(agentFolder)
 	if agentConfig == nil {
@@ -52,9 +49,10 @@ func NewSession(userID, iface string, store session.SessionStore, agentFolder st
 		}
 	}
 
-	// Auto-switch to new session
-	if err := store.SetLast(userID, iface, sessionID); err != nil {
-		return CommandResult{}, fmt.Errorf("failed to set last session: %w", err)
+	// Mint new session and auto-switch to it (also creates its backing file)
+	_, err := session.MintSession(store, userID, iface)
+	if err != nil {
+		return CommandResult{}, fmt.Errorf("failed to create new session: %w", err)
 	}
 
 	// Format memory limit
