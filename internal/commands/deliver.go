@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/DeprecatedLuar/agentctl/internal/message"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
@@ -17,7 +18,8 @@ func HandleDeliver(args []string) error {
 	// Parse arguments
 	path := "."
 	user := ""
-	message := ""
+	text := ""
+	messageGiven := false
 	inject := false
 	var deliver []string
 
@@ -36,20 +38,24 @@ func HandleDeliver(args []string) error {
 			}
 			user = args[i+1]
 			i += 2
-		case flagDeliver:
-			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a comma-separated list", flagDeliver)
-			}
-			deliver = parseCommaSeparated(args[i+1])
-			i += 2
 		case flagInject:
 			inject = true
 			i++
-		default:
-			// First non-flag argument is the message
-			if message == "" {
-				message = args[i]
+		case flagMessage, flagMessageS:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires text", flagMessage)
 			}
+			text = args[i+1]
+			messageGiven = true
+			i += 2
+		default:
+			if len(args[i]) > 0 && args[i][0] == '-' {
+				return fmt.Errorf("unexpected argument: %s", args[i])
+			}
+			if len(deliver) > 0 {
+				return fmt.Errorf("unexpected argument: %s", args[i])
+			}
+			deliver = parseCommaSeparated(args[i])
 			i++
 		}
 	}
@@ -58,15 +64,14 @@ func HandleDeliver(args []string) error {
 	if user == "" {
 		user = os.Getenv(envUser)
 	}
-	if message == "" {
-		message = os.Getenv(envMessage)
+
+	text, err := message.Resolve(text, messageGiven)
+	if err != nil {
+		return err
 	}
 
-	if message == "" {
-		return fmt.Errorf("message is required")
-	}
 	if len(deliver) == 0 {
-		return fmt.Errorf("usage: agentctl deliver <message> --deliver <list> [--inject] [--agent name|path] [--user id]")
+		return fmt.Errorf("usage: agentctl deliver <channel[,channel...]> [--message text] [--inject] [--agent name|path] [--user id]")
 	}
 
 	// Resolve agent path
@@ -86,7 +91,7 @@ func HandleDeliver(args []string) error {
 	// Send request
 	req := chatRequest{
 		User:    user,
-		Message: message,
+		Message: text,
 		Deliver: deliver,
 		Inject:  inject,
 		Raw:     true,

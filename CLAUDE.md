@@ -57,6 +57,7 @@ tools/*.toml            # Command + params (auto-discover or explicit)
 - Normal: Interface → HandleMessage(iface, contactID, displayName, content) → orchestrator
 - Explicit: CLI --user/--session → HandleExplicitMessage(userID, sessionID, iface, content)
 - Delivery: --deliver/--inject → HandleMessageWithOptions(MessageOptions)
+- Raw delivery: `deliver` command → HandleMessageWithOptions(MessageOptions{Raw: true}) → skips agent call, delivers Content verbatim
 - Commands: Interface detects "/" → syscommands.Parse() → helpers → format → return (no orchestrator)
 
 ## Config Files

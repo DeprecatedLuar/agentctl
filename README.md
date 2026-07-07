@@ -49,8 +49,9 @@ agentctl chat "hello"
 |---------|-------------|---------|
 | `init [path]` | Create agent folder with templates | `agentctl init my-agent` |
 | `run [path]` | Start daemon with configured interfaces | `agentctl run my-agent` |
-| `chat <message>` | Send message to running daemon | `agentctl chat "analyze logs" -a my-agent` |
-| `inject <content>` | Inject turn into session without running agent | `agentctl inject "response" --role assistant --session 20260614_abc` |
+| `chat` | Send message to running daemon | `agentctl chat -m "analyze logs" -a my-agent` |
+| `inject` | Inject turn into session without running agent | `agentctl inject -m "response" --role assistant --session 20260614_abc` |
+| `deliver <channel>` | Deliver literal text to channels without running the agent | `agentctl deliver telegram -m "Reminder: standup" --inject` |
 | `toolrun <name>` | Execute tool manually with parameters | `agentctl toolrun weather --city=London` |
 | `getagent` | Print current agent name from registry | `agentctl getagent` |
 | `models [provider]` | List available models | `agentctl models openrouter --free --tools` |
@@ -64,6 +65,7 @@ agentctl chat "hello"
 - `-v, --verbose` - Verbose logging
 
 **`chat` command:**
+- `-m, --message <text>` - Message to send (required; falls back to `AGENTCTL_MESSAGE`)
 - `-a, --agent <path>` - Agent folder path (default: current dir)
 - `-u, --user <id>` - User ID for session (default: system username)
 - `-s, --session <id>` - Session ID (default: last session or new)
@@ -74,9 +76,18 @@ agentctl chat "hello"
 - Env vars: `AGENTCTL_USER`, `AGENTCTL_SESSION`, `AGENTCTL_MESSAGE` (flags/args take priority)
 
 **`inject` command:**
+- `-m, --message <text>` - Content to inject (required; falls back to `AGENTCTL_MESSAGE`)
 - `--role <assistant|user>` - Role of injected turn (required)
 - `--session <id>` - Session ID to inject into (required)
 - `-a, --agent <path>` - Agent folder path (default: current dir)
+
+**`deliver` command:**
+- `<channel[,channel...]>` - Positional; channels to deliver the literal message to (required)
+- `-m, --message <text>` - Message to deliver (required; falls back to `AGENTCTL_MESSAGE`)
+- `--inject` - Also inject the message as an assistant turn into the target session(s)
+- `-u, --user <id>` - User ID for bare-interface channel resolution
+- `-a, --agent <path>` - Agent folder path (default: current dir)
+- Env vars: `AGENTCTL_USER`, `AGENTCTL_MESSAGE` (flags/args take priority)
 
 **`models` command:**
 - `--free` - Show only free models
@@ -623,16 +634,16 @@ Send messages from one interface and deliver to others:
 
 ```bash
 # Send from CLI, deliver to telegram (doesn't modify telegram session)
-agentctl chat "update" --deliver telegram
+agentctl chat -m "update" --deliver telegram
 
 # Deliver to multiple channels
-agentctl chat "broadcast" --deliver telegram,cli
+agentctl chat -m "broadcast" --deliver telegram,cli
 
 # Deliver AND inject into target session (preserves history)
-agentctl chat "update" --deliver telegram --inject
+agentctl chat -m "update" --deliver telegram --inject
 
 # Specify user explicitly (user@interface format)
-agentctl chat "message" --deliver alice@telegram
+agentctl chat -m "message" --deliver alice@telegram
 ```
 
 **Channel syntax:**
@@ -645,6 +656,27 @@ agentctl chat "message" --deliver alice@telegram
 - `--deliver` with `--inject`: Delivers AND adds assistant turn to target session
 - Response shown on CLI regardless of delivery targets
 - Delivery failures logged as warnings, don't break request
+
+**Raw delivery (no LLM call):**
+
+`chat` always runs an agent turn before delivering. Use `deliver` instead to send literal text straight to a channel, e.g. for scheduled reminders where no model call is needed:
+
+```bash
+# Deliver literal text, no agent call
+agentctl deliver telegram -m "Reminder: standup in 5 minutes"
+
+# Deliver to multiple channels
+agentctl deliver telegram,cli -m "Reminder: standup in 5 minutes"
+
+# Deliver AND inject into target session
+agentctl deliver telegram -m "Reminder: standup in 5 minutes" --inject
+
+# Multi-line content without shell quoting issues
+AGENTCTL_MESSAGE="line one
+line two" agentctl deliver telegram --user alice
+```
+
+Channel is a positional argument here (unlike `chat`'s optional `--deliver` flag) since delivering *somewhere* is the entire point of `deliver`. Same channel syntax and `--inject` semantics as `chat`'s delivery flags — `deliver` just skips the agent call and treats the message as the response verbatim.
 
 ### Tool Whitelisting
 

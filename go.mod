@@ -4,17 +4,17 @@ go 1.25.5
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/DeprecatedLuar/gohelp-luar v0.2.3
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/joho/godotenv v1.5.1
 	github.com/openai/openai-go v1.12.0
+	golang.org/x/term v0.27.0
 )
 
 require (
-	github.com/DeprecatedLuar/gohelp-luar v0.2.3 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
 )

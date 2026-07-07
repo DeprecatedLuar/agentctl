@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/agentctl/internal/interfaces/cli"
+	"github.com/DeprecatedLuar/agentctl/internal/message"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
@@ -28,12 +29,13 @@ const (
 	flagDeliver  = "--deliver"
 	flagInject   = "--inject"
 	flagTools    = "--tools"
+	flagMessage  = "--message"
+	flagMessageS = "-m"
 	// flagDebug is defined in run.go and shared across commands
 
 	// Environment variables
 	envUser    = "AGENTCTL_USER"
 	envSession = "AGENTCTL_SESSION"
-	envMessage = "AGENTCTL_MESSAGE"
 )
 
 type chatRequest struct {
@@ -54,15 +56,12 @@ type chatResponse struct {
 }
 
 func HandleChat(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: agentctl chat <message> [--agent name|path] [--user id] [--session id] [--deliver list] [--inject] [--tools list] [--debug]")
-	}
-
 	// Parse arguments
 	path := "."
 	user := ""
 	sessionKey := ""
-	message := ""
+	text := ""
+	messageGiven := false
 	debug := false
 	inject := false
 	var deliver []string
@@ -104,15 +103,18 @@ func HandleChat(args []string) error {
 			}
 			tools = parseCommaSeparated(args[i+1])
 			i += 2
+		case flagMessage, flagMessageS:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires text", flagMessage)
+			}
+			text = args[i+1]
+			messageGiven = true
+			i += 2
 		case flagDebug:
 			debug = true
 			i++
 		default:
-			// First non-flag argument is the message
-			if message == "" {
-				message = args[i]
-			}
-			i++
+			return fmt.Errorf("unexpected argument: %s", args[i])
 		}
 	}
 
@@ -123,12 +125,10 @@ func HandleChat(args []string) error {
 	if sessionKey == "" {
 		sessionKey = os.Getenv(envSession)
 	}
-	if message == "" {
-		message = os.Getenv(envMessage)
-	}
 
-	if message == "" {
-		return fmt.Errorf("message is required")
+	text, err := message.Resolve(text, messageGiven)
+	if err != nil {
+		return err
 	}
 
 	// Resolve agent path
@@ -149,7 +149,7 @@ func HandleChat(args []string) error {
 	req := chatRequest{
 		User:    user,
 		Session: sessionKey,
-		Message: message,
+		Message: text,
 		Debug:   debug,
 		Deliver: deliver,
 		Inject:  inject,

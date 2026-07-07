@@ -3,20 +3,18 @@ package commands
 import (
 	"fmt"
 
+	"github.com/DeprecatedLuar/agentctl/internal/message"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
 func HandleInject(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: agentctl inject <content> --role <assistant|user> --session <id> [--agent name|path]")
-	}
-
 	// Parse arguments
 	path := "."
 	role := ""
 	sessionID := ""
 	content := ""
+	contentGiven := false
 
 	i := 0
 	for i < len(args) {
@@ -39,18 +37,22 @@ func HandleInject(args []string) error {
 			}
 			sessionID = args[i+1]
 			i += 2
-		default:
-			// First non-flag argument is the content
-			if content == "" {
-				content = args[i]
+		case flagMessage, flagMessageS:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires text", flagMessage)
 			}
-			i++
+			content = args[i+1]
+			contentGiven = true
+			i += 2
+		default:
+			return fmt.Errorf("unexpected argument: %s", args[i])
 		}
 	}
 
 	// Validate required fields
-	if content == "" {
-		return fmt.Errorf("content is required")
+	content, err := message.Resolve(content, contentGiven)
+	if err != nil {
+		return err
 	}
 	if role == "" {
 		return fmt.Errorf("--role is required")
