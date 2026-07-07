@@ -18,9 +18,9 @@ type MessageOptions struct {
 	SessionID string
 
 	// Delivery options
-	Channels       []string // --channel: deliver to these channels (no injection)
-	ChannelsInject []string // --channel-inject: deliver and inject into session
-	Tools          []string // --tools: whitelist of tools for this run
+	Deliver []string // --deliver: channels to deliver the response to
+	Inject  bool     // --inject: also inject the delivered response into the target session
+	Tools   []string // --tools: whitelist of tools for this run
 }
 
 // MessageHandler processes incoming messages and returns responses

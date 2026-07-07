@@ -15,34 +15,35 @@ import (
 
 const (
 	// File and directory names
-	chatDataDir  = ".data"
+	chatDataDir    = ".data"
 	socketFilename = "agent.sock"
 
 	// Flags
-	flagAgent         = "--agent"
-	flagAgentS        = "-a"
-	flagUser          = "--user"
-	flagUserS         = "-u"
-	flagSession       = "--session"
-	flagSessionS      = "-s"
-	flagChannel       = "--channel"
-	flagChannelInject = "--channel-inject"
-	flagTools         = "--tools"
+	flagAgent    = "--agent"
+	flagAgentS   = "-a"
+	flagUser     = "--user"
+	flagUserS    = "-u"
+	flagSession  = "--session"
+	flagSessionS = "-s"
+	flagDeliver  = "--deliver"
+	flagInject   = "--inject"
+	flagTools    = "--tools"
 	// flagDebug is defined in run.go and shared across commands
 
 	// Environment variables
 	envUser    = "AGENTCTL_USER"
 	envSession = "AGENTCTL_SESSION"
+	envMessage = "AGENTCTL_MESSAGE"
 )
 
 type chatRequest struct {
-	User          string   `json:"user"`
-	Session       string   `json:"session"`
-	Message       string   `json:"message"`
-	Debug         bool     `json:"debug"`
-	Channel       []string `json:"channel,omitempty"`
-	ChannelInject []string `json:"channel_inject,omitempty"`
-	Tools         []string `json:"tools,omitempty"`
+	User    string   `json:"user"`
+	Session string   `json:"session"`
+	Message string   `json:"message"`
+	Debug   bool     `json:"debug"`
+	Deliver []string `json:"deliver,omitempty"`
+	Inject  bool     `json:"inject,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
 }
 
 type chatResponse struct {
@@ -53,7 +54,7 @@ type chatResponse struct {
 
 func HandleChat(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: agentctl chat <message> [--agent name|path] [--user id] [--session id] [--channel list] [--channel-inject list] [--tools list] [--debug]")
+		return fmt.Errorf("usage: agentctl chat <message> [--agent name|path] [--user id] [--session id] [--deliver list] [--inject] [--tools list] [--debug]")
 	}
 
 	// Parse arguments
@@ -62,8 +63,8 @@ func HandleChat(args []string) error {
 	sessionKey := ""
 	message := ""
 	debug := false
-	var channels []string
-	var channelsInject []string
+	inject := false
+	var deliver []string
 	var tools []string
 
 	i := 0
@@ -87,18 +88,15 @@ func HandleChat(args []string) error {
 			}
 			sessionKey = args[i+1]
 			i += 2
-		case flagChannel:
+		case flagDeliver:
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a comma-separated list", flagChannel)
+				return fmt.Errorf("%s requires a comma-separated list", flagDeliver)
 			}
-			channels = parseCommaSeparated(args[i+1])
+			deliver = parseCommaSeparated(args[i+1])
 			i += 2
-		case flagChannelInject:
-			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a comma-separated list", flagChannelInject)
-			}
-			channelsInject = parseCommaSeparated(args[i+1])
-			i += 2
+		case flagInject:
+			inject = true
+			i++
 		case flagTools:
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s requires a comma-separated list", flagTools)
@@ -117,16 +115,19 @@ func HandleChat(args []string) error {
 		}
 	}
 
-	if message == "" {
-		return fmt.Errorf("message is required")
-	}
-
-	// Apply env vars (flags take priority)
+	// Apply env vars (flags/args take priority)
 	if user == "" {
 		user = os.Getenv(envUser)
 	}
 	if sessionKey == "" {
 		sessionKey = os.Getenv(envSession)
+	}
+	if message == "" {
+		message = os.Getenv(envMessage)
+	}
+
+	if message == "" {
+		return fmt.Errorf("message is required")
 	}
 
 	// Resolve agent path
@@ -145,13 +146,13 @@ func HandleChat(args []string) error {
 
 	// Send request
 	req := chatRequest{
-		User:          user,
-		Session:       sessionKey,
-		Message:       message,
-		Debug:         debug,
-		Channel:       channels,
-		ChannelInject: channelsInject,
-		Tools:         tools,
+		User:    user,
+		Session: sessionKey,
+		Message: message,
+		Debug:   debug,
+		Deliver: deliver,
+		Inject:  inject,
+		Tools:   tools,
 	}
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {

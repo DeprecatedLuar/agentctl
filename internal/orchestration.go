@@ -255,8 +255,8 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 	}
 
 	// Handle channel delivery
-	if len(opts.Channels) > 0 || len(opts.ChannelsInject) > 0 {
-		if err := o.deliverToChannels(userID, opts.Channels, opts.ChannelsInject, response); err != nil {
+	if len(opts.Deliver) > 0 {
+		if err := o.deliverToChannels(userID, opts.Deliver, opts.Inject, response); err != nil {
 			o.Logger.Warn("channel delivery failed", "error", err)
 			// Don't fail the whole request - user still gets their response
 		}
@@ -265,36 +265,13 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 	return response, nil
 }
 
-// deliverToChannels delivers response to specified channels with optional injection
-func (o *Orchestrator) deliverToChannels(currentUserID string, channels, channelsInject []string, response string) error {
+// deliverToChannels delivers response to specified channels, optionally injecting into the target session
+func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string, inject bool, response string) error {
 	if o.Dispatcher == nil {
 		return fmt.Errorf("dispatcher not configured")
 	}
 
-	// Process --channel (delivery only)
 	for _, channelStr := range channels {
-		userID, platformID, _, err := session.ResolveChannel(o.SessionStore, o.AgentFolder, channelStr, currentUserID)
-		if err != nil {
-			o.Logger.Warn("failed to resolve channel", "channel", channelStr, "error", err)
-			continue
-		}
-
-		// Extract interface from channel string
-		iface := channelStr
-		if strings.Contains(channelStr, "@") {
-			parts := strings.SplitN(channelStr, "@", 2)
-			iface = parts[1]
-		}
-
-		if err := o.Dispatcher.Send(iface, platformID, response); err != nil {
-			o.Logger.Warn("failed to deliver to channel", "channel", channelStr, "error", err)
-		} else if o.Debug {
-			o.Logger.Debug("delivered to channel", "channel", channelStr, "user", userID)
-		}
-	}
-
-	// Process --channel-inject (delivery + injection)
-	for _, channelStr := range channelsInject {
 		userID, platformID, targetSessionID, err := session.ResolveChannel(o.SessionStore, o.AgentFolder, channelStr, currentUserID)
 		if err != nil {
 			o.Logger.Warn("failed to resolve channel", "channel", channelStr, "error", err)
@@ -308,17 +285,20 @@ func (o *Orchestrator) deliverToChannels(currentUserID string, channels, channel
 			iface = parts[1]
 		}
 
-		// Deliver message
 		if err := o.Dispatcher.Send(iface, platformID, response); err != nil {
 			o.Logger.Warn("failed to deliver to channel", "channel", channelStr, "error", err)
 			continue // Don't inject if delivery failed
 		}
+		if o.Debug {
+			o.Logger.Debug("delivered to channel", "channel", channelStr, "user", userID)
+		}
 
-		// Inject assistant turn into target session
-		if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, "assistant", response); err != nil {
-			o.Logger.Warn("failed to inject turn", "channel", channelStr, "session", targetSessionID, "error", err)
-		} else if o.Debug {
-			o.Logger.Debug("delivered and injected", "channel", channelStr, "user", userID, "session", targetSessionID)
+		if inject {
+			if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, "assistant", response); err != nil {
+				o.Logger.Warn("failed to inject turn", "channel", channelStr, "session", targetSessionID, "error", err)
+			} else if o.Debug {
+				o.Logger.Debug("injected", "channel", channelStr, "user", userID, "session", targetSessionID)
+			}
 		}
 	}
 
@@ -463,4 +443,3 @@ func formatValidationError(context string, issues []config.ValidationIssue) erro
 	}
 	return fmt.Errorf("%s failed: %s", context, strings.Join(msgs, "; "))
 }
-

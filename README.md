@@ -67,11 +67,11 @@ agentctl chat "hello"
 - `-a, --agent <path>` - Agent folder path (default: current dir)
 - `-u, --user <id>` - User ID for session (default: system username)
 - `-s, --session <id>` - Session ID (default: last session or new)
-- `--channel <list>` - Deliver response to channels (comma-separated: `telegram,cli`)
-- `--channel-inject <list>` - Deliver and inject into channel sessions (comma-separated)
+- `--deliver <list>` - Deliver response to channels (comma-separated: `telegram,cli`)
+- `--inject` - Also inject the delivered response into the target session(s)
 - `--tools <list>` - Whitelist tools for this run (comma-separated, overrides agent.toml)
 - `--debug` - Show session file path in output
-- Env vars: `AGENTCTL_USER`, `AGENTCTL_SESSION` (flags take priority)
+- Env vars: `AGENTCTL_USER`, `AGENTCTL_SESSION`, `AGENTCTL_MESSAGE` (flags/args take priority)
 
 **`inject` command:**
 - `--role <assistant|user>` - Role of injected turn (required)
@@ -623,16 +623,16 @@ Send messages from one interface and deliver to others:
 
 ```bash
 # Send from CLI, deliver to telegram (doesn't modify telegram session)
-agentctl chat "update" --channel telegram
+agentctl chat "update" --deliver telegram
 
 # Deliver to multiple channels
-agentctl chat "broadcast" --channel telegram,cli
+agentctl chat "broadcast" --deliver telegram,cli
 
 # Deliver AND inject into target session (preserves history)
-agentctl chat "update" --channel-inject telegram
+agentctl chat "update" --deliver telegram --inject
 
 # Specify user explicitly (user@interface format)
-agentctl chat "message" --channel alice@telegram
+agentctl chat "message" --deliver alice@telegram
 ```
 
 **Channel syntax:**
@@ -641,8 +641,8 @@ agentctl chat "message" --channel alice@telegram
 - Comma-separated lists for multiple targets
 
 **Behavior:**
-- `--channel`: Delivers response without modifying target session
-- `--channel-inject`: Delivers AND adds assistant turn to target session
+- `--deliver` alone: Delivers response without modifying target session
+- `--deliver` with `--inject`: Delivers AND adds assistant turn to target session
 - Response shown on CLI regardless of delivery targets
 - Delivery failures logged as warnings, don't break request
 

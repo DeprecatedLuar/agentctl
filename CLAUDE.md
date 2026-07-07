@@ -56,7 +56,7 @@ tools/*.toml            # Command + params (auto-discover or explicit)
 **Flows:**
 - Normal: Interface → HandleMessage(iface, contactID, displayName, content) → orchestrator
 - Explicit: CLI --user/--session → HandleExplicitMessage(userID, sessionID, iface, content)
-- Delivery: --channel/--channel-inject → HandleMessageWithOptions(MessageOptions)
+- Delivery: --deliver/--inject → HandleMessageWithOptions(MessageOptions)
 - Commands: Interface detects "/" → syscommands.Parse() → helpers → format → return (no orchestrator)
 
 ## Config Files

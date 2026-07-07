@@ -20,8 +20,8 @@ func RootPage() *gohelp.Page {
 			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
 			gohelp.Item("--session, -s <id>", "Session ID for explicit session selection"),
 			gohelp.Item("--user, -u <id>", "User ID for explicit user selection"),
-			gohelp.Item("--channel <list>", "Deliver response to channels (comma-separated, e.g., telegram,cli)"),
-			gohelp.Item("--channel-inject <list>", "Deliver and inject into channel sessions (comma-separated)"),
+			gohelp.Item("--deliver <list>", "Deliver response to channels (comma-separated, e.g., telegram,cli)"),
+			gohelp.Item("--inject", "Also inject the delivered response into the target session(s)"),
 			gohelp.Item("--tools <list>", "Whitelist tools for this run (comma-separated)"),
 			gohelp.Item("--debug", "Show debug information including session file path"),
 		).

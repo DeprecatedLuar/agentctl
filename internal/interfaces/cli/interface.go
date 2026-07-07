@@ -45,13 +45,13 @@ type CLIInterface struct {
 
 // CLIRequest represents a request from the CLI client
 type CLIRequest struct {
-	User          string   `json:"user"`
-	Session       string   `json:"session"`
-	Message       string   `json:"message"`
-	Debug         bool     `json:"debug"`
-	Channel       []string `json:"channel,omitempty"`
-	ChannelInject []string `json:"channel_inject,omitempty"`
-	Tools         []string `json:"tools,omitempty"`
+	User    string   `json:"user"`
+	Session string   `json:"session"`
+	Message string   `json:"message"`
+	Debug   bool     `json:"debug"`
+	Deliver []string `json:"deliver,omitempty"`
+	Inject  bool     `json:"inject,omitempty"`
+	Tools   []string `json:"tools,omitempty"`
 }
 
 // CLIResponse represents a response to the CLI client
@@ -141,7 +141,7 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 		}
 
 		// Check if we need to use HandleMessageWithOptions
-		hasDeliveryOptions := len(req.Channel) > 0 || len(req.ChannelInject) > 0 || len(req.Tools) > 0
+		hasDeliveryOptions := len(req.Deliver) > 0 || len(req.Tools) > 0
 
 		if hasDeliveryOptions {
 			c.handleWithOptions(encoder, req)
@@ -259,7 +259,7 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 	}
 }
 
-// handleWithOptions handles requests with delivery options (--channel, --channel-inject, --tools)
+// handleWithOptions handles requests with delivery options (--deliver, --inject, --tools)
 func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) {
 	// Resolve user ID for channel resolution (need identity ID, not raw username)
 	var userID string
@@ -277,16 +277,16 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 
 	// Build MessageOptions
 	opts := internal.MessageOptions{
-		Interface:      interfaceNameCLI,
-		ContactID:      c.username,
-		DisplayName:    c.username,
-		Username:       "", // CLI doesn't have @handles
-		Content:        req.Message,
-		UserID:         req.User,    // Empty unless --user specified
-		SessionID:      req.Session, // Empty unless --session specified
-		Channels:       req.Channel,
-		ChannelsInject: req.ChannelInject,
-		Tools:          req.Tools,
+		Interface:   interfaceNameCLI,
+		ContactID:   c.username,
+		DisplayName: c.username,
+		Username:    "", // CLI doesn't have @handles
+		Content:     req.Message,
+		UserID:      req.User,    // Empty unless --user specified
+		SessionID:   req.Session, // Empty unless --session specified
+		Deliver:     req.Deliver,
+		Inject:      req.Inject,
+		Tools:       req.Tools,
 	}
 
 	// Log message received
