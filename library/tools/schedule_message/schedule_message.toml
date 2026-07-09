@@ -1,8 +1,8 @@
 command = "./scripts/schedule_message.sh"
 description = """
-Schedule a message to be delivered to the user at a specific future
+Schedule a message to the user at a specific future
 date and time. Reminders, check-ins or anything that should reach the user
-later. Use autonomously based on context.
+later. Can be used autonomously multiple times based on context.
 """
 
 [when]

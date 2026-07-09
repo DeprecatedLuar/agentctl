@@ -54,85 +54,131 @@ func processDirectives(content string, ctx Context) (string, error) {
 	return processDirectivesWithDepth(content, ctx, 0)
 }
 
-// validateSyntaxWithDepth validates directive syntax with depth limit
+// validateSyntaxWithDepth validates directive syntax with depth limit.
+//
+// Note: syntax-only validation can't catch nested syntax errors (e.g. inside a
+// {{file:}}'s target) until runtime, since that requires actually loading the
+// content. That's acceptable since the first level is always validated up front,
+// and full nested validation happens during processDirectives.
 func validateSyntaxWithDepth(content string, depth int) error {
 	if depth > maxDepth {
 		return fmt.Errorf("directive nesting too deep (max %d levels)", maxDepth)
 	}
 
 	pos := 0
-	hasDirectives := false
-
-	// Scan all {{...}} patterns
 	for {
-		// Find next {{
-		start := strings.Index(content[pos:], prefix)
-		if start == -1 {
-			break
-		}
-		start += pos
+		tok := scanBraceToken(content, pos)
 
-		// Check for escape sequence \{{
-		if start > 0 && content[start-1] == byte(escapeChar) {
-			pos = start + len(prefix)
-			continue
-		}
+		switch tok.kind {
+		case tokenNone, tokenUnterminated:
+			return nil
 
-		// Find matching closing }} (handle nested {{...}})
-		endOffset := findMatchingCloseBrace(content[start+len(prefix):])
-		if endOffset == -1 {
-			break
-		}
-		end := start + len(prefix) + endOffset
+		case tokenEscaped:
+			pos = tok.start + len(prefix)
 
-		// Extract inner content
-		inner := content[start+len(prefix) : end]
+		case tokenVariable:
+			pos = tok.end + len(suffix)
 
-		// Check if this is a directive (contains :)
-		colonIdx := strings.IndexByte(inner, byte(directiveSep))
-		if colonIdx == -1 {
-			// Variable placeholder, skip
-			pos = end + len(suffix)
-			continue
+		case tokenDirective:
+			if err := validateDirectivePathSyntax(tok.directiveType, tok.directivePath); err != nil {
+				return err
+			}
+			if err := validateDirectiveType(tok.directiveType, tok.directivePath); err != nil {
+				return err
+			}
+			pos = tok.end + len(suffix)
 		}
+	}
+}
 
-		// This is a directive - validate it
-		hasDirectives = true
-		directiveType := inner[:colonIdx]
-		directivePath := inner[colonIdx+1:]
+// tokenKind classifies what scanBraceToken found at the next {{ in a string.
+type tokenKind int
 
-		// Validate path syntax
-		if len(directivePath) == 0 {
-			return fmt.Errorf("{{%s:}}: empty path not allowed", directiveType)
-		}
-		if directivePath[0] == ' ' {
-			return fmt.Errorf("{{%s:%s}}: invalid syntax, space after colon not allowed (use {{%s:%s}})",
-				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
-		}
-		if directivePath[len(directivePath)-1] == ' ' {
-			return fmt.Errorf("{{%s:%s}}: invalid syntax, space before closing braces not allowed (use {{%s:%s}})",
-				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
-		}
+const (
+	tokenNone         tokenKind = iota // no more {{ in the remainder of the string
+	tokenEscaped                       // a \{{ escape sequence (literal {{, not a placeholder)
+	tokenUnterminated                  // a {{ with no matching }}
+	tokenDirective                     // a {{type:path}} directive
+	tokenVariable                      // a {{name}} variable placeholder (no ':')
+)
 
-		// Validate directive type (syntax check only, don't execute)
-		switch directiveType {
-		case "file", "exec":
-			// Valid directive types
-		default:
-			return fmt.Errorf("{{%s:%s}}: unknown directive type '%s' (valid: file, exec)", directiveType, directivePath, directiveType)
-		}
+// braceToken is one {{...}} construct found while scanning content, along with
+// enough position/content info for callers to either validate or substitute it.
+type braceToken struct {
+	kind          tokenKind
+	start         int    // index of "{{" (set for all kinds except tokenNone)
+	end           int    // index of "}}" (set for tokenDirective/tokenVariable)
+	inner         string // raw content between the braces (tokenDirective/tokenVariable)
+	directiveType string // inner before the ':' (tokenDirective only)
+	directivePath string // inner after the ':' (tokenDirective only)
+}
 
-		pos = end + len(suffix)
+// scanBraceToken finds the next {{...}} construct in content starting at pos.
+// It shares the escape-detection and nested-brace-matching rules used by both
+// validateSyntaxWithDepth and processDirectivesWithDepth, and additionally
+// extracts the directive type/path split so callers don't repeat that either.
+func scanBraceToken(content string, pos int) braceToken {
+	start := strings.Index(content[pos:], prefix)
+	if start == -1 {
+		return braceToken{kind: tokenNone}
+	}
+	start += pos // Adjust to absolute position
+
+	// Check for escape sequence \{{
+	if start > 0 && content[start-1] == byte(escapeChar) {
+		return braceToken{kind: tokenEscaped, start: start}
 	}
 
-	// If we found directives, we would need to validate nested content too
-	// But since we're not actually processing, we can't get the nested content
-	// Nested validation happens during processDirectives
-	// This is a trade-off: syntax-only validation can't catch nested syntax errors
-	// until runtime, but that's acceptable since the first level is validated
-	_ = hasDirectives
+	// Find matching closing }} (handle nested {{...}})
+	endOffset := findMatchingCloseBrace(content[start+len(prefix):])
+	if endOffset == -1 {
+		return braceToken{kind: tokenUnterminated, start: start}
+	}
+	end := start + len(prefix) + endOffset // Position of }}
+	inner := content[start+len(prefix) : end]
 
+	// Check if this is a directive (contains :) or a plain variable
+	colonIdx := strings.IndexByte(inner, byte(directiveSep))
+	if colonIdx == -1 {
+		return braceToken{kind: tokenVariable, start: start, end: end, inner: inner}
+	}
+
+	return braceToken{
+		kind:          tokenDirective,
+		start:         start,
+		end:           end,
+		inner:         inner,
+		directiveType: inner[:colonIdx],
+		directivePath: inner[colonIdx+1:],
+	}
+}
+
+// validateDirectivePathSyntax checks a directive path for the strict syntax rules
+// shared by validation and processing: no empty paths, no leading/trailing spaces.
+func validateDirectivePathSyntax(directiveType, directivePath string) error {
+	if len(directivePath) == 0 {
+		return fmt.Errorf("{{%s:}}: empty path not allowed", directiveType)
+	}
+	if directivePath[0] == ' ' {
+		return fmt.Errorf("{{%s:%s}}: invalid syntax, space after colon not allowed (use {{%s:%s}})",
+			directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+	}
+	if directivePath[len(directivePath)-1] == ' ' {
+		return fmt.Errorf("{{%s:%s}}: invalid syntax, space before closing braces not allowed (use {{%s:%s}})",
+			directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+	}
 	return nil
+}
+
+// validateDirectiveType checks that directiveType is a known directive (syntax check
+// only - it does not execute anything).
+func validateDirectiveType(directiveType, directivePath string) error {
+	switch directiveType {
+	case "file", "exec":
+		return nil
+	default:
+		return fmt.Errorf("{{%s:%s}}: unknown directive type '%s' (valid: file, exec)", directiveType, directivePath, directiveType)
+	}
 }
 
 // findMatchingCloseBrace finds the position of the matching }} for nested {{...}}
@@ -190,53 +236,35 @@ func processDirectivesWithDepth(content string, ctx Context, depth int) (string,
 
 	// Process all {{...}} patterns
 	for {
-		// Find next {{
-		start := strings.Index(content[pos:], prefix)
-		if start == -1 {
-			// No more placeholders - append rest of content
-			result.WriteString(content[pos:])
-			break
-		}
-		start += pos // Adjust to absolute position
+		tok := scanBraceToken(content, pos)
 
-		// Check for escape sequence \{{
-		if start > 0 && content[start-1] == byte(escapeChar) {
+		switch tok.kind {
+		case tokenNone, tokenUnterminated:
+			// No more placeholders (or an unterminated one) - append rest and stop
+			result.WriteString(content[pos:])
+			return result.String(), nil
+
+		case tokenEscaped:
 			// Remove backslash and keep {{ as literal
-			result.WriteString(content[pos : start-1]) // Write up to (but not including) backslash
-			result.WriteString(prefix)                  // Write literal {{
-			pos = start + len(prefix)
+			result.WriteString(content[pos : tok.start-1]) // Write up to (but not including) backslash
+			result.WriteString(prefix)                       // Write literal {{
+			pos = tok.start + len(prefix)
 			continue
-		}
 
-		// Find matching closing }} (handle nested {{...}})
-		endOffset := findMatchingCloseBrace(content[start+len(prefix):])
-		if endOffset == -1 {
-			// No closing }} - append rest and stop
-			result.WriteString(content[pos:])
-			break
-		}
-		end := start + len(prefix) + endOffset // Position of }}
-
-		// Append content before placeholder
-		result.WriteString(content[pos:start])
-
-		// Extract inner content
-		inner := content[start+len(prefix) : end]
-
-		// Check if this is a directive (contains :) or a variable
-		colonIdx := strings.IndexByte(inner, byte(directiveSep))
-		if colonIdx == -1 {
+		case tokenVariable:
 			// No colon - this is a variable placeholder, keep as-is
+			result.WriteString(content[pos:tok.start])
 			result.WriteString(prefix)
-			result.WriteString(inner)
+			result.WriteString(tok.inner)
 			result.WriteString(suffix)
-			pos = end + len(suffix)
+			pos = tok.end + len(suffix)
 			continue
 		}
 
-		// This is a directive - extract type and path
-		directiveType := inner[:colonIdx]
-		directivePath := inner[colonIdx+1:]
+		// tokenDirective - extract type and path
+		result.WriteString(content[pos:tok.start])
+		directiveType := tok.directiveType
+		directivePath := tok.directivePath
 
 		// Substitute variables in directive path (e.g., {{file:path/{{$user}}/file.md}})
 		// Skip during validation mode to preserve variables
@@ -249,23 +277,15 @@ func processDirectivesWithDepth(content string, ctx Context, depth int) (string,
 			// Can't process directives with runtime variables during validation
 			// Keep as-is and continue (don't mark as processed to avoid recursion)
 			result.WriteString(prefix)
-			result.WriteString(inner)
+			result.WriteString(tok.inner)
 			result.WriteString(suffix)
-			pos = end + len(suffix)
+			pos = tok.end + len(suffix)
 			continue
 		}
 
 		// Validate path syntax (strict: no spaces, no empty paths)
-		if len(directivePath) == 0 {
-			return "", fmt.Errorf("{{%s:}}: empty path not allowed", directiveType)
-		}
-		if directivePath[0] == ' ' {
-			return "", fmt.Errorf("{{%s:%s}}: invalid syntax, space after colon not allowed (use {{%s:%s}})",
-				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
-		}
-		if directivePath[len(directivePath)-1] == ' ' {
-			return "", fmt.Errorf("{{%s:%s}}: invalid syntax, space before closing braces not allowed (use {{%s:%s}})",
-				directiveType, directivePath, directiveType, strings.TrimSpace(directivePath))
+		if err := validateDirectivePathSyntax(directiveType, directivePath); err != nil {
+			return "", err
 		}
 
 		var replacement string
@@ -300,15 +320,13 @@ func processDirectivesWithDepth(content string, ctx Context, depth int) (string,
 
 		default:
 			// Unknown directive type
-			return "", fmt.Errorf("{{%s:%s}}: unknown directive type '%s' (valid: file, exec)", directiveType, directivePath, directiveType)
+			return "", validateDirectiveType(directiveType, directivePath)
 		}
 
 		// Append replacement content
 		result.WriteString(replacement)
-		pos = end + len(suffix)
+		pos = tok.end + len(suffix)
 	}
-
-	return result.String(), nil
 }
 
 // loadFile loads file content with path resolution relative to baseDir.

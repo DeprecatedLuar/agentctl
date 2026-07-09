@@ -10,6 +10,16 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 )
 
+const (
+	defaultWhisperCLIModel = "base"
+	ffmpegBinary           = "ffmpeg"
+	whisperCLISampleRate   = "16000"
+	whisperCLIChannels     = "1"
+	whisperCLIFlagOutTxt   = "-otxt"
+	whisperCLIFlagOutFile  = "-of"
+	whisperCLIFlagNoPrint  = "-np"
+)
+
 // WhisperCLI implements Transcriber using the whisper CLI tool
 type WhisperCLI struct {
 	model string
@@ -24,7 +34,7 @@ func NewWhisperCLI(cfg *config.AudioConfig) (*WhisperCLI, error) {
 
 	model := cfg.Model
 	if model == "" {
-		model = "base" // Default model
+		model = defaultWhisperCLIModel
 	}
 
 	return &WhisperCLI{
@@ -36,23 +46,15 @@ func NewWhisperCLI(cfg *config.AudioConfig) (*WhisperCLI, error) {
 func (w *WhisperCLI) Transcribe(audioData []byte, filename string) (string, error) {
 	// Create temp file for audio
 	ext := filepath.Ext(filename)
-	if ext == "" {
-		ext = ".mp3" // Default
-	}
-
-	tmpFile, err := os.CreateTemp("", "whisper-*"+ext)
+	tmpPath, cleanup, err := writeTempAudioFile(audioData, ext)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
+		return "", err
 	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath) // Clean up
+	defer cleanup()
 
-	// Write audio data
-	if _, err := tmpFile.Write(audioData); err != nil {
-		tmpFile.Close()
-		return "", fmt.Errorf("failed to write audio data: %w", err)
+	if ext == "" {
+		ext = defaultAudioExt
 	}
-	tmpFile.Close()
 
 	// Convert to WAV if not already WAV (whisper-cli requires WAV/supported formats)
 	audioPath := tmpPath
@@ -61,7 +63,7 @@ func (w *WhisperCLI) Transcribe(audioData []byte, filename string) (string, erro
 		defer os.Remove(wavPath)
 
 		// Use ffmpeg to convert to WAV (16kHz mono for optimal whisper performance)
-		convertCmd := exec.Command("ffmpeg", "-i", tmpPath, "-ar", "16000", "-ac", "1", "-y", wavPath)
+		convertCmd := exec.Command(ffmpegBinary, "-i", tmpPath, "-ar", whisperCLISampleRate, "-ac", whisperCLIChannels, "-y", wavPath)
 		var convertErr strings.Builder
 		convertCmd.Stderr = &convertErr
 		if err := convertCmd.Run(); err != nil {
@@ -83,9 +85,9 @@ func (w *WhisperCLI) Transcribe(audioData []byte, filename string) (string, erro
 	cmd := exec.Command("whisper-cli",
 		"-f", audioPath,
 		"-m", w.model,
-		"-otxt",
-		"-of", outputPath,
-		"-np", // no prints (quiet mode)
+		whisperCLIFlagOutTxt,
+		whisperCLIFlagOutFile, outputPath,
+		whisperCLIFlagNoPrint, // no prints (quiet mode)
 	)
 
 	// Capture stderr for errors

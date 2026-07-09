@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+
+	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 )
 
 // MessageOptions contains all parameters for message handling including delivery options
@@ -41,16 +43,10 @@ type MessageHandler interface {
 	HandleMessageWithOptions(opts MessageOptions) (string, error)
 }
 
-// Dispatcher abstracts response delivery mechanism (socket, bot API, etc.)
-// DEPRECATED: Legacy single-response dispatcher
-type Dispatcher interface {
-	Send(response string) error
-}
-
 // OutboundDispatcher handles cross-interface message delivery
 type OutboundDispatcher interface {
 	Send(iface, platformID, content string) error
-	Register(sender interface{}) // Generic to avoid circular import
+	Register(sender interfaces.Sender)
 }
 
 // Interface defines the contract for agent interfaces (CLI, Telegram, etc.)

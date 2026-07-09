@@ -2,37 +2,6 @@ package resolution
 
 import "strings"
 
-// findMatchingCloseBraceVar finds the position of the matching }} for nested {{...}}
-// Returns the offset from the start of the search string, or -1 if not found
-// Same logic as in directives.go but kept separate to avoid circular dependencies
-func findMatchingCloseBraceVar(content string) int {
-	depth := 1 // We already consumed one {{
-	i := 0
-
-	for i < len(content)-1 {
-		// Check for opening {{
-		if i < len(content)-1 && content[i:i+2] == prefix {
-			depth++
-			i += 2
-			continue
-		}
-
-		// Check for closing }}
-		if i < len(content)-1 && content[i:i+2] == suffix {
-			depth--
-			if depth == 0 {
-				return i // Found matching close
-			}
-			i += 2
-			continue
-		}
-
-		i++
-	}
-
-	return -1 // No matching close found
-}
-
 // substituteVariables replaces {{var}} and {{$var}} placeholders with their values.
 // System variables ({{$var}}) take precedence over user variables ({{var}}).
 //
@@ -62,7 +31,7 @@ func substituteVariables(content string, sysVars, userVars map[string]string) st
 		}
 
 		// Find matching closing }} (handle nested {{...}})
-		endOffset := findMatchingCloseBraceVar(content[start+len(prefix):])
+		endOffset := findMatchingCloseBrace(content[start+len(prefix):])
 		if endOffset == -1 {
 			// No closing }} - append rest and stop
 			result.WriteString(content[pos:])

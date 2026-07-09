@@ -23,7 +23,21 @@ const (
 	contactKeySeparator     = ":" // Separator for interface:platformID
 	unlinkedFolderSeparator = "-" // Separator for filesystem folder names
 	contactKeyExpectedParts = 2   // Expected parts when splitting contact key
+
+	// Access control default: when no explicit allow/deny setting exists
+	// (config missing, contact unknown, or Allowed unset), allow by default
+	// for backward compatibility.
+	defaultAllowByDefault = true
 )
+
+// resolveAllowed applies the "no explicit setting -> allow by default" policy
+// shared by access-control decisions. explicit is nil when no override exists.
+func resolveAllowed(explicit *bool) bool {
+	if explicit != nil {
+		return *explicit
+	}
+	return defaultAllowByDefault
+}
 
 // Identity represents a user with multiple contact points
 type Identity struct {
@@ -209,7 +223,7 @@ func EnsureContact(agentFolder, iface, platformID, displayName, username string)
 	}
 
 	// Load access policy from agent config
-	allowByDefault := true // Default to true for backward compatibility
+	allowByDefault := defaultAllowByDefault
 	agentCfg, _ := config.LoadAgent(agentFolder)
 	if agentCfg != nil {
 		allowByDefault = agentCfg.Access.AllowByDefault
@@ -250,9 +264,9 @@ func CheckAccess(agentFolder, iface, platformID string) (bool, error) {
 		}
 	}
 
-	// Contact not found - allow by default (backward compat)
+	// Contact not found - no explicit setting exists, allow by default
 	if contact == nil {
-		return true, nil
+		return resolveAllowed(nil), nil
 	}
 
 	// Check if contact is linked to an identity
@@ -270,13 +284,9 @@ func CheckAccess(agentFolder, iface, platformID string) (bool, error) {
 		}
 	}
 
-	// No identity override - check contact.allowed
-	if contact.Allowed != nil {
-		return *contact.Allowed, nil
-	}
-
-	// No explicit setting - allow by default (backward compat)
-	return true, nil
+	// No identity override - check contact.allowed (falls back to allow-by-default
+	// if contact.Allowed is unset)
+	return resolveAllowed(contact.Allowed), nil
 }
 
 // ParseContactKey splits a contact key "interface:platformID" into components

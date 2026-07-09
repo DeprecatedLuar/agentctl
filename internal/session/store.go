@@ -16,6 +16,14 @@ type SessionMeta struct {
 	UserID    string `json:"user_id"`
 }
 
+// NeedsTitle reports whether this session still requires a title to be
+// generated. Gated on the title itself (not file existence) since a
+// session's file may already exist without a real exchange yet - e.g.
+// pre-created by /new or a cold-start channel delivery.
+func (m SessionMeta) NeedsTitle() bool {
+	return m.Title == ""
+}
+
 // SessionStore is the storage abstraction for session data
 type SessionStore interface {
 	// Load retrieves the last N messages from a session

@@ -44,6 +44,18 @@ type ValidationIssue struct {
 	Message string
 }
 
+// HasBlockingError reports whether any issue in the slice is severe enough to
+// block execution, as opposed to a non-fatal warning. This is the single
+// place that decides what counts as blocking vs. advisory.
+func HasBlockingError(issues []ValidationIssue) bool {
+	for _, issue := range issues {
+		if issue.Type == IssueError {
+			return true
+		}
+	}
+	return false
+}
+
 type AgentConfig struct {
 	Agent       AgentSection      `toml:"agent"`
 	Access      AccessConfig      `toml:"access"`
@@ -61,6 +73,12 @@ type AgentSection struct {
 
 type MemoryConfig struct {
 	MaxMessages int `toml:"max_messages"`
+}
+
+// HistoryEnabled reports whether session history should be loaded and
+// persisted at all. A non-positive MaxMessages means memory is off.
+func (m MemoryConfig) HistoryEnabled() bool {
+	return m.MaxMessages > 0
 }
 
 type AudioConfig struct {

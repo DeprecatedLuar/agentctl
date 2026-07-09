@@ -1,11 +1,9 @@
 package session
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -135,7 +133,9 @@ func mergeLastSession(srcPath, dstPath string) error {
 	return writeLastSession(dstPath, merged)
 }
 
-// parseLastSession reads a .last_session file and returns interface->sessionID map
+// parseLastSession reads a .last_session file and returns interface->sessionID map.
+// Shares its line-parsing logic with JSONLStore.GetLast/SetLast (see parseLastSessionEntries
+// in jsonl.go).
 func parseLastSession(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -143,31 +143,12 @@ func parseLastSession(path string) (map[string]string, error) {
 	}
 	defer file.Close()
 
-	entries := make(map[string]string)
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			entries[key] = value
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return entries, nil
+	return parseLastSessionEntries(file)
 }
 
-// writeLastSession writes interface->sessionID map to .last_session file
+// writeLastSession writes interface->sessionID map to .last_session file.
+// Shares its line-writing logic with JSONLStore.SetLast (see writeLastSessionEntries
+// in jsonl.go).
 func writeLastSession(path string, entries map[string]string) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, filePermissions)
 	if err != nil {
@@ -175,13 +156,7 @@ func writeLastSession(path string, entries map[string]string) error {
 	}
 	defer file.Close()
 
-	for iface, sessionID := range entries {
-		if _, err := fmt.Fprintf(file, "%s=%s\n", iface, sessionID); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return writeLastSessionEntries(file, entries)
 }
 
 // isMoreRecent returns true if sessionID1 has a more recent timestamp than sessionID2.

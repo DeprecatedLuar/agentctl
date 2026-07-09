@@ -25,49 +25,55 @@ func HandleDeliver(args []string) error {
 	note := ""
 	var deliver []string
 
-	i := 0
-	for i < len(args) {
-		switch args[i] {
-		case flagAgent, flagAgentS:
+	rules := []flagRule{
+		{names: []string{flagAgent, flagAgentS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a path or name", flagAgent)
+				return 0, fmt.Errorf("%s requires a path or name", flagAgent)
 			}
 			path = args[i+1]
-			i += 2
-		case flagUser, flagUserS:
+			return 2, nil
+		}},
+		{names: []string{flagUser, flagUserS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires an id", flagUser)
+				return 0, fmt.Errorf("%s requires an id", flagUser)
 			}
 			user = args[i+1]
-			i += 2
-		case flagInject:
+			return 2, nil
+		}},
+		{names: []string{flagInject}, parse: func(args []string, i int) (int, error) {
 			inject = true
 			consumed, resolvedRole := parseInjectArg(args, i)
 			role = resolvedRole
-			i += consumed
-		case flagNote:
+			return consumed, nil
+		}},
+		{names: []string{flagNote}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires text", flagNote)
+				return 0, fmt.Errorf("%s requires text", flagNote)
 			}
 			note = args[i+1]
-			i += 2
-		case flagMessage, flagMessageS:
+			return 2, nil
+		}},
+		{names: []string{flagMessage, flagMessageS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires text", flagMessage)
+				return 0, fmt.Errorf("%s requires text", flagMessage)
 			}
 			text = args[i+1]
 			messageGiven = true
-			i += 2
-		default:
-			if len(args[i]) > 0 && args[i][0] == '-' {
-				return fmt.Errorf("unexpected argument: %s", args[i])
-			}
-			if len(deliver) > 0 {
-				return fmt.Errorf("unexpected argument: %s", args[i])
-			}
-			deliver = parseCommaSeparated(args[i])
-			i++
+			return 2, nil
+		}},
+	}
+
+	if err := parseFlags(args, rules, func(arg string) error {
+		if len(arg) > 0 && arg[0] == '-' {
+			return fmt.Errorf("unexpected argument: %s", arg)
 		}
+		if len(deliver) > 0 {
+			return fmt.Errorf("unexpected argument: %s", arg)
+		}
+		deliver = parseCommaSeparated(arg)
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	// Apply env vars (flags/args take priority)

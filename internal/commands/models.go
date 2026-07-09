@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -15,16 +16,22 @@ import (
 
 const (
 	openRouterAPIBase = "https://openrouter.ai/api/v1"
+
+	// Filter flags for HandleModels
+	// flagTools ("--tools") is shared with chat.go/flags.go.
+	flagSTT  = "--stt"
+	flagFree = "--free"
+	flagAll  = "--all"
 )
 
 // staticModel represents a pre-baked model entry
 type staticModel struct {
-	id           string
-	contextLen   int
-	priceIn      string // price per 1M tokens
-	priceOut     string // price per 1M tokens
+	id            string
+	contextLen    int
+	priceIn       string // price per 1M tokens
+	priceOut      string // price per 1M tokens
 	supportsTools bool
-	isSTT        bool
+	isSTT         bool
 }
 
 // OpenAI static models
@@ -47,11 +54,11 @@ var openAIModels = []staticModel{
 
 // orModel represents an OpenRouter model from API
 type orModel struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	ContextLength   int      `json:"context_length"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	ContextLength   int       `json:"context_length"`
 	Pricing         orPricing `json:"pricing"`
-	SupportedParams []string `json:"supported_parameters"`
+	SupportedParams []string  `json:"supported_parameters"`
 }
 
 type orPricing struct {
@@ -127,13 +134,13 @@ func HandleModels(args []string) error {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
-		case "--stt":
+		case flagSTT:
 			stt = true
-		case "--tools":
+		case flagTools:
 			tools = true
-		case "--free":
+		case flagFree:
 			free = true
-		case "--all":
+		case flagAll:
 			all = true
 		default:
 			if provider == "" {
@@ -348,13 +355,7 @@ func printOpenRouterLLMModels(tools, free, all, showHeader bool) error {
 		for p := range providerMap {
 			providers = append(providers, p)
 		}
-		for i := 0; i < len(providers); i++ {
-			for j := i + 1; j < len(providers); j++ {
-				if providers[i] > providers[j] {
-					providers[i], providers[j] = providers[j], providers[i]
-				}
-			}
-		}
+		sort.Strings(providers)
 
 		// Add models in provider order
 		for _, provider := range providers {
@@ -418,14 +419,7 @@ func printOpenRouterSTTModels(free, showHeader bool) error {
 	for p := range providerMap {
 		providers = append(providers, p)
 	}
-	// Bubble sort providers
-	for i := 0; i < len(providers); i++ {
-		for j := i + 1; j < len(providers); j++ {
-			if providers[i] > providers[j] {
-				providers[i], providers[j] = providers[j], providers[i]
-			}
-		}
-	}
+	sort.Strings(providers)
 
 	// Collect ordered models
 	var orderedModels []orModel

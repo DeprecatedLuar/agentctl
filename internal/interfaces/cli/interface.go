@@ -93,7 +93,11 @@ func (c *CLIInterface) Start(ctx context.Context) error {
 	}
 
 	// Remove existing socket file
-	_ = os.Remove(c.socketPath)
+	if err := os.Remove(c.socketPath); err != nil && !os.IsNotExist(err) {
+		if c.logger != nil {
+			c.logger.Warn("failed to remove existing socket file", "socket", c.socketPath, "error", err)
+		}
+	}
 
 	// Create Unix socket listener
 	listener, err := net.Listen("unix", c.socketPath)
@@ -128,6 +132,14 @@ func (c *CLIInterface) Start(ctx context.Context) error {
 	}
 }
 
+// encode writes a CLIResponse to the client and logs any encode error
+// instead of silently discarding it.
+func (c *CLIInterface) encode(encoder *json.Encoder, resp CLIResponse) {
+	if err := encoder.Encode(resp); err != nil && c.logger != nil {
+		c.logger.Error("failed to encode CLI response", "error", err)
+	}
+}
+
 func (c *CLIInterface) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
@@ -137,7 +149,7 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 	for scanner.Scan() {
 		var req CLIRequest
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-			encoder.Encode(CLIResponse{Error: fmt.Sprintf("invalid request: %v", err)})
+			c.encode(encoder, CLIResponse{Error: fmt.Sprintf("invalid request: %v", err)})
 			continue
 		}
 
@@ -168,9 +180,9 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 			// Handle command in CLI layer
 			response, err := c.handleCommand(cmd)
 			if err != nil {
-				encoder.Encode(CLIResponse{Error: err.Error()})
+				c.encode(encoder, CLIResponse{Error: err.Error()})
 			} else {
-				encoder.Encode(CLIResponse{Response: response})
+				c.encode(encoder, CLIResponse{Response: response})
 			}
 			continue
 		}
@@ -192,7 +204,7 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 			if c.logger != nil {
 				c.logger.Error("agent error", "contact", contactID, "interface", interfaceNameCLI, "error", runErr)
 			}
-			encoder.Encode(CLIResponse{Error: runErr.Error()})
+			c.encode(encoder, CLIResponse{Error: runErr.Error()})
 		} else {
 			// Log response sent
 			if c.logger != nil {
@@ -206,7 +218,7 @@ func (c *CLIInterface) handleConnection(conn net.Conn) {
 
 			// Build response (no debug info in normal flow since we don't know resolved session)
 			resp := CLIResponse{Response: response}
-			encoder.Encode(resp)
+			c.encode(encoder, resp)
 		}
 	}
 }
@@ -217,7 +229,7 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 	// Resolve explicit user/session
 	resolved, err := session.ResolveExplicit(c.store, c.agentFolder, req.User, req.Session, interfaceNameCLI)
 	if err != nil {
-		encoder.Encode(CLIResponse{Error: fmt.Sprintf("explicit resolution failed: %v", err)})
+		c.encode(encoder, CLIResponse{Error: fmt.Sprintf("explicit resolution failed: %v", err)})
 		return
 	}
 
@@ -238,7 +250,7 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 		if c.logger != nil {
 			c.logger.Error("agent error", "user", resolved.UserID, "interface", interfaceNameCLI, "error", runErr)
 		}
-		encoder.Encode(CLIResponse{Error: runErr.Error()})
+		c.encode(encoder, CLIResponse{Error: runErr.Error()})
 	} else {
 		// Log response sent
 		if c.logger != nil {
@@ -256,7 +268,7 @@ func (c *CLIInterface) handleExplicitResolution(encoder *json.Encoder, req CLIRe
 			sessionFile := filepath.Join(".data", "sessions", resolved.UserID, resolved.SessionID+".jsonl")
 			resp.SessionFile = sessionFile
 		}
-		encoder.Encode(resp)
+		c.encode(encoder, resp)
 	}
 }
 
@@ -270,7 +282,7 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 		// Resolve username to identity ID
 		resolvedUserID, err := c.store.ResolveUser(interfaceNameCLI, c.username)
 		if err != nil {
-			encoder.Encode(CLIResponse{Error: fmt.Sprintf("failed to resolve user: %v", err)})
+			c.encode(encoder, CLIResponse{Error: fmt.Sprintf("failed to resolve user: %v", err)})
 			return
 		}
 		userID = resolvedUserID
@@ -308,7 +320,7 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 		if c.logger != nil {
 			c.logger.Error("agent error", "user", userID, "interface", interfaceNameCLI, "error", runErr)
 		}
-		encoder.Encode(CLIResponse{Error: runErr.Error()})
+		c.encode(encoder, CLIResponse{Error: runErr.Error()})
 	} else {
 		// Log response sent
 		if c.logger != nil {
@@ -322,7 +334,7 @@ func (c *CLIInterface) handleWithOptions(encoder *json.Encoder, req CLIRequest) 
 
 		// Build response
 		resp := CLIResponse{Response: response}
-		encoder.Encode(resp)
+		c.encode(encoder, resp)
 	}
 }
 

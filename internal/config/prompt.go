@@ -58,8 +58,22 @@ func Parse(agentPath string, ctx resolution.Context) (*ParsedPrompt, []Validatio
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Check for section headers
-		if strings.HasPrefix(line, inputSectionPrefix) && strings.HasSuffix(line, sectionSuffix) {
+		// Check for section headers ([>>...] input, or [>...] static). [>>...] must be
+		// checked first since staticSectionPrefix ("[>") is itself a prefix of it.
+		var headerPrefixLen int
+		var headerIsInput bool
+		switch {
+		case strings.HasPrefix(line, inputSectionPrefix) && strings.HasSuffix(line, sectionSuffix):
+			headerPrefixLen = len(inputSectionPrefix)
+			headerIsInput = true
+		case strings.HasPrefix(line, staticSectionPrefix) && strings.HasSuffix(line, sectionSuffix):
+			headerPrefixLen = len(staticSectionPrefix)
+			headerIsInput = false
+		default:
+			headerPrefixLen = -1
+		}
+
+		if headerPrefixLen >= 0 {
 			// Save previous section if exists
 			if currentRole != "" {
 				sectionIssues, err := saveMessage(&result, currentRole, currentContent.String(), isInput, ctx)
@@ -73,36 +87,19 @@ func Parse(agentPath string, ctx resolution.Context) (*ParsedPrompt, []Validatio
 				}
 			}
 
-			// Start new input section
-			if result.Input != nil {
+			// Only one [>>...] input section is allowed
+			if headerIsInput && result.Input != nil {
 				issues = append(issues, ValidationIssue{
 					Type:    IssueError,
 					Message: fmt.Sprintf("prompt: multiple %s sections found, only one allowed", inputSectionPrefix),
 				})
 				return nil, issues
 			}
-			currentRole = strings.TrimSpace(line[len(inputSectionPrefix) : len(line)-len(sectionSuffix)])
-			currentContent.Reset()
-			isInput = true
 
-		} else if strings.HasPrefix(line, staticSectionPrefix) && strings.HasSuffix(line, sectionSuffix) {
-			// Save previous section if exists
-			if currentRole != "" {
-				sectionIssues, err := saveMessage(&result, currentRole, currentContent.String(), isInput, ctx)
-				issues = append(issues, sectionIssues...)
-				if err != nil {
-					issues = append(issues, ValidationIssue{
-						Type:    IssueError,
-						Message: fmt.Sprintf("prompt: %v", err),
-					})
-					return nil, issues
-				}
-			}
-
-			// Start new static section
-			currentRole = strings.TrimSpace(line[len(staticSectionPrefix) : len(line)-len(sectionSuffix)])
+			// Start new section
+			currentRole = strings.TrimSpace(line[headerPrefixLen : len(line)-len(sectionSuffix)])
 			currentContent.Reset()
-			isInput = false
+			isInput = headerIsInput
 
 		} else {
 			// Content line

@@ -27,6 +27,9 @@ const (
 	telegramPollTimeout  = 60
 	typingInterval       = 4 * time.Second
 	interfaceNameTelegram = "telegram"
+
+	// telegramStartMessage is sent in response to the /start command
+	telegramStartMessage = "Agent ready. Send a message to begin."
 )
 
 // TelegramInterface implements the Telegram bot interface
@@ -100,6 +103,14 @@ func (t *TelegramInterface) Start(ctx context.Context) error {
 	}
 }
 
+// send delivers a Telegram message/action and logs any error instead of
+// silently discarding it.
+func (t *TelegramInterface) send(bot *tgbotapi.BotAPI, msg tgbotapi.Chattable) {
+	if _, err := bot.Send(msg); err != nil && t.logger != nil {
+		t.logger.Error("telegram send failed", "error", err)
+	}
+}
+
 func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, message *tgbotapi.Message) {
 	chatID := message.Chat.ID
 	userID := message.From.ID
@@ -117,18 +128,6 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	// Extract @username handle (optional)
 	username := message.From.UserName
 
-	// Handle /start command
-	if text == "/start" {
-		welcomeMsg := "Agent ready. Send a message to begin."
-		msg := tgbotapi.NewMessage(chatID, formatForTelegram(welcomeMsg))
-		msg.ParseMode = "HTML"
-		bot.Send(msg)
-		if t.logger != nil {
-			t.logger.Info("start command", "contact", contactID)
-		}
-		return
-	}
-
 	// Handle voice messages
 	if message.Voice != nil && t.transcriber != nil {
 		var transcribeErr error
@@ -140,7 +139,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 			errorMsg := fmt.Sprintf("Failed to transcribe voice message: %v", transcribeErr)
 			msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
 			msg.ParseMode = "HTML"
-			bot.Send(msg)
+			t.send(bot, msg)
 			return
 		}
 		if t.logger != nil {
@@ -148,7 +147,8 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		}
 	}
 
-	// Check if message is a command (but not /start, already handled above)
+	// Check if message is a command (including /start, routed through the
+	// same dispatch path as every other command)
 	cmd, cmdErr := syscommands.Parse(text)
 	if cmdErr == nil {
 		// Handle command in Telegram layer (no typing indicator for commands)
@@ -157,11 +157,11 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 			errorMsg := fmt.Sprintf("Error: %v", err)
 			msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
 			msg.ParseMode = "HTML"
-			bot.Send(msg)
+			t.send(bot, msg)
 		} else {
 			msg := tgbotapi.NewMessage(chatID, formatForTelegram(response))
 			msg.ParseMode = "HTML"
-			bot.Send(msg)
+			t.send(bot, msg)
 		}
 		return
 	}
@@ -194,7 +194,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 		errorMsg := fmt.Sprintf("Error: %v", runErr)
 		msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
 		msg.ParseMode = "HTML"
-		bot.Send(msg)
+		t.send(bot, msg)
 		return
 	}
 
@@ -210,13 +210,13 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 
 	msg := tgbotapi.NewMessage(chatID, formatForTelegram(response))
 	msg.ParseMode = "HTML"
-	bot.Send(msg)
+	t.send(bot, msg)
 }
 
 func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
 	// Send typing immediately
 	action := tgbotapi.NewChatAction(chatID, "typing")
-	bot.Send(action)
+	t.send(bot, action)
 
 	ticker := time.NewTicker(typingInterval)
 	defer ticker.Stop()
@@ -225,7 +225,7 @@ func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.Bo
 		select {
 		case <-ticker.C:
 			action := tgbotapi.NewChatAction(chatID, "typing")
-			bot.Send(action)
+			t.send(bot, action)
 		case <-ctx.Done():
 			return
 		}

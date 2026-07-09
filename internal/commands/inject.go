@@ -16,38 +16,42 @@ func HandleInject(args []string) error {
 	content := ""
 	contentGiven := false
 
-	i := 0
-	for i < len(args) {
-		switch args[i] {
-		case flagAgent, flagAgentS:
+	rules := []flagRule{
+		{names: []string{flagAgent, flagAgentS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a path or name", flagAgent)
+				return 0, fmt.Errorf("%s requires a path or name", flagAgent)
 			}
 			path = args[i+1]
-			i += 2
-		case flagSession, flagSessionS:
+			return 2, nil
+		}},
+		{names: []string{flagSession, flagSessionS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires an id", flagSession)
+				return 0, fmt.Errorf("%s requires an id", flagSession)
 			}
 			sessionID = args[i+1]
-			i += 2
-		case flagMessage, flagMessageS:
+			return 2, nil
+		}},
+		{names: []string{flagMessage, flagMessageS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires text", flagMessage)
+				return 0, fmt.Errorf("%s requires text", flagMessage)
 			}
 			content = args[i+1]
 			contentGiven = true
-			i += 2
-		default:
-			if len(args[i]) > 0 && args[i][0] == '-' {
-				return fmt.Errorf("unexpected argument: %s", args[i])
-			}
-			if role != "" {
-				return fmt.Errorf("unexpected argument: %s", args[i])
-			}
-			role = args[i]
-			i++
+			return 2, nil
+		}},
+	}
+
+	if err := parseFlags(args, rules, func(arg string) error {
+		if len(arg) > 0 && arg[0] == '-' {
+			return fmt.Errorf("unexpected argument: %s", arg)
 		}
+		if role != "" {
+			return fmt.Errorf("unexpected argument: %s", arg)
+		}
+		role = arg
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	// Validate required fields

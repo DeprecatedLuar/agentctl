@@ -2,9 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
+	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
 	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
 )
 
@@ -51,38 +50,13 @@ func (c *CLIInterface) handleCommand(cmd *syscommands.Command) (string, error) {
 
 // formatNewSession formats /new command result for CLI
 func (c *CLIInterface) formatNewSession(result syscommands.CommandResult) string {
-	data := result.Data.(map[string]string)
-	return fmt.Sprintf("New session started\n\nModel: %s\nProvider: %s\nMemory: %s messages",
-		data["model"], data["provider"], data["memory"])
+	return interfaces.FormatNewSession(result)
 }
 
 // formatSessionList formats /sessions command result for CLI (numbered list)
 func (c *CLIInterface) formatSessionList(result syscommands.CommandResult) string {
 	sessions := result.Data.([]syscommands.SessionInfo)
-	if len(sessions) == 0 {
-		return "No sessions found"
-	}
-
-	var b strings.Builder
-	b.WriteString("Sessions:\n")
-	for i, s := range sessions {
-		title := s.Title
-		if title == "" {
-			title = "(untitled)"
-		}
-
-		// Format date from timestamp
-		date := formatTimestamp(s.CreatedAt)
-
-		// Build line: "1. Title (date) [active]"
-		b.WriteString(fmt.Sprintf("%d. %s (%s)", i+1, title, date))
-		if s.IsActive {
-			b.WriteString(" [active]")
-		}
-		b.WriteString("\n")
-	}
-
-	return strings.TrimSpace(b.String())
+	return interfaces.FormatSessionList(sessions, true)
 }
 
 // formatSessionSwitched formats session switch result for CLI
@@ -93,13 +67,4 @@ func (c *CLIInterface) formatSessionSwitched(result syscommands.CommandResult) s
 		title = "(untitled)"
 	}
 	return fmt.Sprintf("Switched to session: %s", title)
-}
-
-// formatTimestamp converts Unix timestamp to YYYY-MM-DD format
-func formatTimestamp(ts int64) string {
-	if ts == 0 {
-		return "unknown"
-	}
-	t := time.Unix(ts, 0)
-	return t.Format("2006-01-02")
 }

@@ -71,57 +71,66 @@ func HandleChat(args []string) error {
 	var deliver []string
 	var tools []string
 
-	i := 0
-	for i < len(args) {
-		switch args[i] {
-		case flagAgent, flagAgentS:
+	rules := []flagRule{
+		{names: []string{flagAgent, flagAgentS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a path or name", flagAgent)
+				return 0, fmt.Errorf("%s requires a path or name", flagAgent)
 			}
 			path = args[i+1]
-			i += 2
-		case flagUser, flagUserS:
+			return 2, nil
+		}},
+		{names: []string{flagUser, flagUserS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires an id", flagUser)
+				return 0, fmt.Errorf("%s requires an id", flagUser)
 			}
 			user = args[i+1]
-			i += 2
-		case flagSession, flagSessionS:
+			return 2, nil
+		}},
+		{names: []string{flagSession, flagSessionS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires an id", flagSession)
+				return 0, fmt.Errorf("%s requires an id", flagSession)
 			}
 			sessionKey = args[i+1]
-			i += 2
-		case flagDeliver:
+			return 2, nil
+		}},
+		{names: []string{flagDeliver}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a comma-separated list", flagDeliver)
+				return 0, fmt.Errorf("%s requires a comma-separated list", flagDeliver)
 			}
 			deliver = parseCommaSeparated(args[i+1])
-			i += 2
-		case flagInject:
+			return 2, nil
+		}},
+		{names: []string{flagInject}, parse: func(args []string, i int) (int, error) {
 			inject = true
 			consumed, resolvedRole := parseInjectArg(args, i)
 			role = resolvedRole
-			i += consumed
-		case flagTools:
+			return consumed, nil
+		}},
+		{names: []string{flagTools}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a comma-separated list", flagTools)
+				return 0, fmt.Errorf("%s requires a comma-separated list", flagTools)
 			}
 			tools = parseCommaSeparated(args[i+1])
-			i += 2
-		case flagMessage, flagMessageS:
+			return 2, nil
+		}},
+		{names: []string{flagMessage, flagMessageS}, parse: func(args []string, i int) (int, error) {
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires text", flagMessage)
+				return 0, fmt.Errorf("%s requires text", flagMessage)
 			}
 			text = args[i+1]
 			messageGiven = true
-			i += 2
-		case flagDebug:
+			return 2, nil
+		}},
+		{names: []string{flagDebug}, parse: func(args []string, i int) (int, error) {
 			debug = true
-			i++
-		default:
-			return fmt.Errorf("unexpected argument: %s", args[i])
-		}
+			return 1, nil
+		}},
+	}
+
+	if err := parseFlags(args, rules, func(arg string) error {
+		return fmt.Errorf("unexpected argument: %s", arg)
+	}); err != nil {
+		return err
 	}
 
 	// Apply env vars (flags/args take priority)

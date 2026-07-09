@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -337,6 +338,45 @@ func (s *JSONLStore) SetMeta(userID, sessionID string, meta SessionMeta) error {
 	return nil
 }
 
+// parseLastSessionEntries parses .last_session key=value lines from r into a map.
+// Malformed lines (missing separator) are skipped.
+func parseLastSessionEntries(r io.Reader) (map[string]string, error) {
+	entries := make(map[string]string)
+	scanner := bufio.NewScanner(r)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, lastSessionSeparator, lastSessionExpectedParts)
+		if len(parts) != lastSessionExpectedParts {
+			continue // Skip malformed lines
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		entries[key] = value
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+// writeLastSessionEntries writes a key=value map to w in .last_session format.
+func writeLastSessionEntries(w io.Writer, entries map[string]string) error {
+	for k, v := range entries {
+		if _, err := fmt.Fprintf(w, "%s%s%s\n", k, lastSessionSeparator, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetLast returns the last session ID for this user+interface combo.
 func (s *JSONLStore) GetLast(userID, iface string) (string, error) {
 	lastPath := filepath.Join(s.AgentFolder, sessionsDir, userID, lastSessionFile)
@@ -350,33 +390,12 @@ func (s *JSONLStore) GetLast(userID, iface string) (string, error) {
 	}
 	defer file.Close()
 
-	// Parse plain text key=value format
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		// Split on first separator
-		parts := strings.SplitN(line, lastSessionSeparator, lastSessionExpectedParts)
-		if len(parts) != lastSessionExpectedParts {
-			continue // Skip malformed lines
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		if key == iface {
-			return value, nil
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	entries, err := parseLastSessionEntries(file)
+	if err != nil {
 		return "", fmt.Errorf("failed to parse .last_session: %w", err)
 	}
 
-	return "", nil
+	return entries[iface], nil
 }
 
 // SetLast updates the last session ID for this user+interface atomically.
@@ -393,25 +412,12 @@ func (s *JSONLStore) SetLast(userID, iface, sessionID string) error {
 	entries := make(map[string]string)
 
 	if file, err := os.Open(lastPath); err == nil {
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-
-			parts := strings.SplitN(line, lastSessionSeparator, lastSessionExpectedParts)
-			if len(parts) == lastSessionExpectedParts {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(parts[1])
-				entries[key] = value
-			}
-		}
+		parsed, parseErr := parseLastSessionEntries(file)
 		file.Close()
-
-		if err := scanner.Err(); err != nil {
-			return fmt.Errorf("failed to parse .last_session: %w", err)
+		if parseErr != nil {
+			return fmt.Errorf("failed to parse .last_session: %w", parseErr)
 		}
+		entries = parsed
 	}
 
 	// Update/add entry for this interface
@@ -424,12 +430,10 @@ func (s *JSONLStore) SetLast(userID, iface, sessionID string) error {
 	}
 	tmpPath := tmpFile.Name()
 
-	for k, v := range entries {
-		if _, err := fmt.Fprintf(tmpFile, "%s=%s\n", k, v); err != nil {
-			tmpFile.Close()
-			os.Remove(tmpPath)
-			return fmt.Errorf("failed to write .last_session: %w", err)
-		}
+	if err := writeLastSessionEntries(tmpFile, entries); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to write .last_session: %w", err)
 	}
 
 	if err := tmpFile.Close(); err != nil {

@@ -15,11 +15,38 @@ import (
 )
 
 const (
-	whisperEnvFile       = ".env"
-	whisperAPIKey        = "OPENAI_API_KEY"
-	whisperDefaultURL    = "https://api.openai.com/v1"
-	whisperDefaultModel  = "whisper-1"
+	whisperEnvFile      = ".env"
+	whisperAPIKey       = "OPENAI_API_KEY"
+	whisperDefaultURL   = "https://api.openai.com/v1"
+	whisperDefaultModel = "whisper-1"
+	defaultAudioExt     = ".mp3"
 )
+
+// writeTempAudioFile writes audioData to a new temp file, defaulting the
+// extension to defaultAudioExt when ext is empty. It returns the file path
+// and a cleanup function that removes the file; callers must invoke cleanup
+// (typically via defer) once done with the file.
+func writeTempAudioFile(audioData []byte, ext string) (path string, cleanup func(), err error) {
+	if ext == "" {
+		ext = defaultAudioExt
+	}
+
+	tmpFile, err := os.CreateTemp("", "whisper-*"+ext)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	cleanup = func() { os.Remove(tmpPath) }
+
+	if _, err := tmpFile.Write(audioData); err != nil {
+		tmpFile.Close()
+		cleanup()
+		return "", nil, fmt.Errorf("failed to write audio data: %w", err)
+	}
+	tmpFile.Close()
+
+	return tmpPath, cleanup, nil
+}
 
 // WhisperAPI implements Transcriber using OpenAI-compatible API
 type WhisperAPI struct {
@@ -78,23 +105,11 @@ func NewWhisperAPI(cfg *config.AudioConfig, agentFolder string) (*WhisperAPI, er
 func (w *WhisperAPI) Transcribe(audioData []byte, filename string) (string, error) {
 	// Create temp file for audio (OpenAI SDK needs a file)
 	ext := filepath.Ext(filename)
-	if ext == "" {
-		ext = ".mp3"
-	}
-
-	tmpFile, err := os.CreateTemp("", "whisper-api-*"+ext)
+	tmpPath, cleanup, err := writeTempAudioFile(audioData, ext)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file: %w", err)
+		return "", err
 	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	// Write audio data
-	if _, err := tmpFile.Write(audioData); err != nil {
-		tmpFile.Close()
-		return "", fmt.Errorf("failed to write audio data: %w", err)
-	}
-	tmpFile.Close()
+	defer cleanup()
 
 	// Call API
 	ctx := context.Background()

@@ -89,20 +89,6 @@ func TestOutboundDispatcher_Send_SenderError(t *testing.T) {
 	}
 }
 
-func TestOutboundDispatcher_Register_InvalidType(t *testing.T) {
-	dispatcher := NewOutboundDispatcher()
-
-	// Test panic recovery
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic when registering non-Sender type")
-		}
-	}()
-
-	// This should panic
-	dispatcher.Register("not a sender")
-}
-
 func TestOutboundDispatcher_MultipleInterfaces(t *testing.T) {
 	dispatcher := NewOutboundDispatcher()
 

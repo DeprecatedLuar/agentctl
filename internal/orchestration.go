@@ -8,6 +8,7 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/hooks"
+	"github.com/DeprecatedLuar/agentctl/internal/queue"
 	"github.com/DeprecatedLuar/agentctl/internal/resolution"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
@@ -20,6 +21,17 @@ type Orchestrator struct {
 	Logger       *slog.Logger
 	Verbose      bool
 	Debug        bool
+	queues       queue.Registry // per-session message queues, keyed by userID+sessionID
+}
+
+// enqueue serializes content through the per-session queue for
+// (userID, sessionID), creating the queue on first use, and blocks until the
+// resulting turn has been processed.
+func (o *Orchestrator) enqueue(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
+	sq := o.queues.GetOrCreate(userID, sessionID, func(c string) (string, error) {
+		return o.handleMessage(userID, sessionID, iface, c, toolWhitelist)
+	})
+	return sq.Enqueue(content)
 }
 
 // HandleMessage implements the MessageHandler interface
@@ -49,7 +61,7 @@ func (o *Orchestrator) HandleMessage(iface, contactID, displayName, username, co
 		return "", fmt.Errorf("access denied")
 	}
 
-	return o.handleMessageInternal(resolved.UserID, resolved.SessionID, iface, content)
+	return o.enqueue(resolved.UserID, resolved.SessionID, iface, content, nil)
 }
 
 // HandleExplicitMessage implements the MessageHandler interface for explicit resolution
@@ -74,12 +86,15 @@ func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content s
 		return "", fmt.Errorf("access denied")
 	}
 
-	return o.handleMessageInternal(userID, sessionID, iface, content)
+	return o.enqueue(userID, sessionID, iface, content, nil)
 }
 
-// handleMessageInternal contains the core message handling logic
-// Called by both HandleMessage (after resolution) and HandleExplicitMessage (direct)
-func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content string) (string, error) {
+// handleMessage contains the core message handling logic, shared by every
+// entry point (HandleMessage, HandleExplicitMessage, HandleMessageWithOptions):
+// hooks -> resolve config/tools/prompt -> load history -> agent.Run -> save.
+// toolWhitelist filters loaded tools down to the given names when non-empty;
+// nil or empty applies no filtering.
+func (o *Orchestrator) handleMessage(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
 
 	// Execute prerun hook before config load
 	if err := hooks.ExecutePrerun(o.AgentFolder, nil, o.Logger); err != nil {
@@ -99,7 +114,7 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 	ctx := resolution.NewContext(
 		o.AgentFolder,
 		userID,
-		"", // username not available in handleMessageInternal
+		"", // username not available at this layer
 		sessionID,
 		iface,
 		agentCfg.Agent.Model,
@@ -108,36 +123,31 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 	)
 	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
 
-	// Collect all validation issues
+	// Apply tool whitelist if specified
+	if len(toolWhitelist) > 0 {
+		tools = filterTools(tools, toolWhitelist)
+		if o.Debug {
+			o.Logger.Debug("applied tool whitelist", "count", len(tools), "whitelist", toolWhitelist)
+		}
+	}
+
+	// Collect and validate all issues
 	allIssues := append(agentIssues, toolIssues...)
 	allIssues = append(allIssues, promptIssues...)
-
-	// Check for errors
-	for _, issue := range allIssues {
-		if issue.Type == config.IssueError {
-			err := formatValidationError("configuration", allIssues)
-			o.Logger.Error("configuration validation failed", "error", err)
-			return "", err
-		}
+	if err := checkIssues("configuration", allIssues); err != nil {
+		o.Logger.Error("configuration validation failed", "error", err)
+		return "", err
 	}
 
 	// Load history from session
 	var history []agent.Message
-	if agentCfg.Memory.MaxMessages > 0 {
+	if agentCfg.Memory.HistoryEnabled() {
 		messages, err := o.SessionStore.Load(userID, sessionID, agentCfg.Memory.MaxMessages)
 		if err != nil {
 			o.Logger.Error("failed to load session history", "error", err)
 			return "", err
 		}
-
-		// Convert internal.Message to agent.Message
-		history = make([]agent.Message, len(messages))
-		for i, msg := range messages {
-			history[i] = agent.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			}
-		}
+		history = toAgentMessages(messages)
 	}
 
 	// Build agent input
@@ -155,33 +165,67 @@ func (o *Orchestrator) handleMessageInternal(userID, sessionID, iface, content s
 		return "", err
 	}
 
-	// Save messages to session
-	if agentCfg.Memory.MaxMessages > 0 {
-		// Check BEFORE saving whether a title is still needed. Gated on the
-		// title itself (not file existence) since a session's file may
-		// already exist without a real exchange yet - e.g. pre-created by
-		// /new or a cold-start channel delivery.
-		meta, _ := o.SessionStore.GetMeta(userID, sessionID)
-		needsTitle := meta.Title == ""
-		if o.Debug {
-			o.Logger.Debug("session check", "needs_title", needsTitle, "session", sessionID)
-		}
-
-		// Save user message and assistant response
-		_ = o.SessionStore.Save(userID, sessionID, "user", content)
-		_ = o.SessionStore.Save(userID, sessionID, "assistant", response)
-
-		// Auto-generate title after first real exchange (async, non-blocking)
-		if needsTitle {
-			if o.Debug {
-				o.Logger.Debug("launching title generation", "session", sessionID)
-			}
-			// Pass messages directly to avoid race condition with file I/O
-			go o.generateTitle(agentCfg, userID, sessionID, content, response)
-		}
-	}
+	// Save messages to session and kick off title generation if needed
+	o.saveAndMaybeTitle(agentCfg, userID, sessionID, content, response)
 
 	return response, nil
+}
+
+// checkIssues returns a formatted error if issues contains anything severe
+// enough to block execution (see config.HasBlockingError), or nil otherwise.
+func checkIssues(context string, issues []config.ValidationIssue) error {
+	if !config.HasBlockingError(issues) {
+		return nil
+	}
+	return formatValidationError(context, issues)
+}
+
+// toAgentMessages converts stored session messages to the format agent.Run expects.
+func toAgentMessages(msgs []session.Message) []agent.Message {
+	history := make([]agent.Message, len(msgs))
+	for i, msg := range msgs {
+		history[i] = agent.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+	return history
+}
+
+// saveAndMaybeTitle persists the user/assistant turn to the session (when
+// memory is enabled) and, on the session's first real exchange, kicks off
+// async title generation.
+func (o *Orchestrator) saveAndMaybeTitle(agentCfg *config.AgentConfig, userID, sessionID, content, response string) {
+	if !agentCfg.Memory.HistoryEnabled() {
+		return
+	}
+
+	// Check BEFORE saving whether a title is still needed.
+	meta, err := o.SessionStore.GetMeta(userID, sessionID)
+	if err != nil {
+		o.Logger.Warn("failed to get session metadata", "session", sessionID, "error", err)
+	}
+	needsTitle := meta.NeedsTitle()
+	if o.Debug {
+		o.Logger.Debug("session check", "needs_title", needsTitle, "session", sessionID)
+	}
+
+	// Save user message and assistant response
+	if err := o.SessionStore.Save(userID, sessionID, "user", content); err != nil {
+		o.Logger.Error("failed to save user message", "session", sessionID, "error", err)
+	}
+	if err := o.SessionStore.Save(userID, sessionID, "assistant", response); err != nil {
+		o.Logger.Error("failed to save assistant message", "session", sessionID, "error", err)
+	}
+
+	// Auto-generate title after first real exchange (async, non-blocking)
+	if needsTitle {
+		if o.Debug {
+			o.Logger.Debug("launching title generation", "session", sessionID)
+		}
+		// Pass messages directly to avoid race condition with file I/O
+		go o.generateTitle(agentCfg, userID, sessionID, content, response)
+	}
 }
 
 // generateTitle generates a session title in the background
@@ -257,7 +301,7 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 	if opts.Raw {
 		response = opts.Content
 	} else {
-		response, err = o.handleMessageInternalWithTools(userID, sessionID, opts.Interface, opts.Content, opts.Tools)
+		response, err = o.enqueue(userID, sessionID, opts.Interface, opts.Content, opts.Tools)
 		if err != nil {
 			return "", err
 		}
@@ -323,119 +367,6 @@ func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string
 	}
 
 	return nil
-}
-
-// handleMessageInternalWithTools is like handleMessageInternal but supports tool whitelisting
-func (o *Orchestrator) handleMessageInternalWithTools(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
-	// Execute prerun hook before config load
-	if err := hooks.ExecutePrerun(o.AgentFolder, nil, o.Logger); err != nil {
-		// Non-fatal, but log if something catastrophic happened
-		o.Logger.Error("prerun hook error", "error", err)
-	}
-
-	// Load config, tools, and prompt fresh on each request (hot reload)
-	agentCfg, agentIssues := config.LoadAgent(o.AgentFolder)
-	if agentCfg == nil {
-		err := formatValidationError("agent configuration", agentIssues)
-		o.Logger.Error("failed to load agent config", "error", err)
-		return "", err
-	}
-
-	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Agent.Tools)
-	ctx := resolution.NewContext(
-		o.AgentFolder,
-		userID,
-		"", // username not available in handleMessageInternalWithTools
-		sessionID,
-		iface,
-		agentCfg.Agent.Model,
-		agentCfg.Agent.Provider,
-		agentCfg.Environment,
-	)
-	prompt, promptIssues := config.Parse(o.AgentFolder, ctx)
-
-	// Apply tool whitelist if specified
-	if len(toolWhitelist) > 0 {
-		tools = filterTools(tools, toolWhitelist)
-		if o.Debug {
-			o.Logger.Debug("applied tool whitelist", "count", len(tools), "whitelist", toolWhitelist)
-		}
-	}
-
-	// Collect all validation issues
-	allIssues := append(agentIssues, toolIssues...)
-	allIssues = append(allIssues, promptIssues...)
-
-	// Check for errors
-	for _, issue := range allIssues {
-		if issue.Type == config.IssueError {
-			err := formatValidationError("configuration", allIssues)
-			o.Logger.Error("configuration validation failed", "error", err)
-			return "", err
-		}
-	}
-
-	// Load history from session
-	var history []agent.Message
-	if agentCfg.Memory.MaxMessages > 0 {
-		messages, err := o.SessionStore.Load(userID, sessionID, agentCfg.Memory.MaxMessages)
-		if err != nil {
-			o.Logger.Error("failed to load session history", "error", err)
-			return "", err
-		}
-
-		// Convert internal.Message to agent.Message
-		history = make([]agent.Message, len(messages))
-		for i, msg := range messages {
-			history[i] = agent.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			}
-		}
-	}
-
-	// Build agent input
-	input := agent.Input{
-		UserID:    userID,
-		SessionID: sessionID,
-		Interface: iface,
-		Content:   content,
-	}
-
-	// Call agent
-	response, err := agent.Run(agentCfg, tools, prompt, history, input, o.AgentFolder, o.Logger, o.Verbose, o.Debug)
-	if err != nil {
-		o.Logger.Error("agent execution failed", "error", err)
-		return "", err
-	}
-
-	// Save messages to session
-	if agentCfg.Memory.MaxMessages > 0 {
-		// Check BEFORE saving whether a title is still needed. Gated on the
-		// title itself (not file existence) since a session's file may
-		// already exist without a real exchange yet - e.g. pre-created by
-		// /new or a cold-start channel delivery.
-		meta, _ := o.SessionStore.GetMeta(userID, sessionID)
-		needsTitle := meta.Title == ""
-		if o.Debug {
-			o.Logger.Debug("session check", "needs_title", needsTitle, "session", sessionID)
-		}
-
-		// Save user message and assistant response
-		_ = o.SessionStore.Save(userID, sessionID, "user", content)
-		_ = o.SessionStore.Save(userID, sessionID, "assistant", response)
-
-		// Auto-generate title after first real exchange (async, non-blocking)
-		if needsTitle {
-			if o.Debug {
-				o.Logger.Debug("launching title generation", "session", sessionID)
-			}
-			// Pass messages directly to avoid race condition with file I/O
-			go o.generateTitle(agentCfg, userID, sessionID, content, response)
-		}
-	}
-
-	return response, nil
 }
 
 // filterTools returns only tools matching the whitelist

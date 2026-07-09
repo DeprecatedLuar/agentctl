@@ -25,14 +25,8 @@ func NewOutboundDispatcher() *OutboundDispatcher {
 }
 
 // Register adds an interface sender to the dispatcher
-// Accepts interface{} to satisfy port contract, type-asserts to Sender internally
-func (d *OutboundDispatcher) Register(sender interface{}) {
-	s, ok := sender.(Sender)
-	if !ok {
-		// Panic is acceptable here - this is a programming error, not runtime
-		panic(fmt.Sprintf("dispatcher.Register: expected Sender, got %T", sender))
-	}
-	d.senders[s.InterfaceName()] = s
+func (d *OutboundDispatcher) Register(sender Sender) {
+	d.senders[sender.InterfaceName()] = sender
 }
 
 // Send delivers a message to the specified interface and platform ID
