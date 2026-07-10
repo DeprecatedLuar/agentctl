@@ -61,6 +61,9 @@ lerna-debug.log*
 *.mp4
 *.kra
 
+# Graphify output
+graphify-out/
+
 # Purpose and planning files
 *.purpose.md
 .purpose.md
