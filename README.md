@@ -107,7 +107,7 @@ my-agent/
 ├── config/
 │   └── agent.toml          # Provider, model, interfaces, memory config
 ├── prompts/
-│   └── default.prompt      # Prompt template with sections
+│   └── chat_template       # Message template with sections (chat_template.md also accepted)
 ├── tools/                  # Tool definitions (*.toml)
 │   └── example.toml        # Example tool (excluded from auto-load)
 ├── .prerun.sh              # Optional: runs before each agent execution (non-fatal)

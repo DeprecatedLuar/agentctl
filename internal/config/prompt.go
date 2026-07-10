@@ -11,8 +11,12 @@ import (
 )
 
 const (
-	// File names
-	promptFile = "prompts/default.prompt"
+	// File names — chat_template (no extension) takes priority over chat_template.md
+	// when both exist, so a user can add the .md suffix purely for editor highlighting
+	// without silently losing their extensionless file.
+	promptDir          = "prompts"
+	chatTemplateFile   = "chat_template"
+	chatTemplateMdFile = "chat_template.md"
 
 	// Section markers
 	inputSectionPrefix  = "[>>"
@@ -35,9 +39,32 @@ type Message struct {
 	Content string
 }
 
+// resolvePromptPath returns prompts/chat_template if it exists, else
+// prompts/chat_template.md, else an error naming both candidates.
+func resolvePromptPath(agentPath string) (string, error) {
+	noExt := filepath.Join(agentPath, promptDir, chatTemplateFile)
+	if _, err := os.Stat(noExt); err == nil {
+		return noExt, nil
+	}
+
+	withMd := filepath.Join(agentPath, promptDir, chatTemplateMdFile)
+	if _, err := os.Stat(withMd); err == nil {
+		return withMd, nil
+	}
+
+	return "", fmt.Errorf("open %s: neither %s nor %s exists", filepath.Join(agentPath, promptDir), chatTemplateFile, chatTemplateMdFile)
+}
+
 func Parse(agentPath string, ctx resolution.Context) (*ParsedPrompt, []ValidationIssue) {
 	var issues []ValidationIssue
-	promptPath := filepath.Join(agentPath, promptFile)
+	promptPath, err := resolvePromptPath(agentPath)
+	if err != nil {
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("prompt: %v", err),
+		})
+		return nil, issues
+	}
 
 	file, err := os.Open(promptPath)
 	if err != nil {

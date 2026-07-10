@@ -45,7 +45,7 @@ Interfaces (cli/, telegram/) → ports.go (MessageHandler)
 ```
 .prerun.sh              # Runs before each message (non-fatal)
 config/agent.toml       # [agent], [access], [memory], [audio]
-prompts/default.prompt  # [>role] static, [>>role] input
+prompts/chat_template   # [>role] static, [>>role] input (or chat_template.md fallback)
 tools/*.toml            # Command + params (auto-discover or explicit)
 .data/
   contacts.toml         # [[identity]] + [[contact]]

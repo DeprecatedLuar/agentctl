@@ -127,6 +127,7 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 
 	choice := resp.Choices[0]
 	content := choice.Message.Content
+	reasoning := extractReasoning(choice.Message)
 
 	var toolCalls []ToolCall
 	if len(choice.Message.ToolCalls) > 0 {
@@ -151,9 +152,25 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 		debugToolCalls[i] = debug.ToolCall{Name: tc.Name, Args: tc.Args}
 	}
 	debug.RecordExchange(p.logger, p.userFolder, debugMessages, tools, p.providerName, p.model,
-		debug.ResponseData{Content: content, ToolCalls: debugToolCalls}, nil, p.debugEnabled)
+		debug.ResponseData{Content: content, Reasoning: reasoning, ToolCalls: debugToolCalls}, nil, p.debugEnabled)
 
 	return content, toolCalls, nil
+}
+
+// extractReasoning pulls the provider-extension "reasoning" field (e.g. OpenRouter's
+// reasoning-model output) out of a chat completion message. The openai-go SDK has no
+// native field for it since it's not part of the standard OpenAI response schema, so
+// it surfaces only in JSON.ExtraFields. Returns "" if the provider didn't send one.
+func extractReasoning(msg openai.ChatCompletionMessage) string {
+	field, ok := msg.JSON.ExtraFields["reasoning"]
+	if !ok {
+		return ""
+	}
+	var reasoning string
+	if err := json.Unmarshal([]byte(field.Raw()), &reasoning); err != nil {
+		return ""
+	}
+	return reasoning
 }
 
 // convertTool converts a tool config to OpenAI-compatible schema format.

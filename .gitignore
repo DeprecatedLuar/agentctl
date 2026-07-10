@@ -81,4 +81,4 @@ doc.md
 !LICENSE
 !shell.nix
 !.gitignore
-!internal/templates/files/prompts/default.prompt
+!internal/templates/files/prompts/chat_template

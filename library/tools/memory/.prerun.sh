@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Memory tool prerun - self-heal every file declared in memory.config for
-# this user, and ensure default.prompt loads core.md via a [>user] section.
+# this user, and ensure chat_template loads core.md via a [>user] section.
 
 mkdir -p .data/tools/memory/"$USER"
 mkdir -p config/tools
@@ -35,9 +35,12 @@ while IFS=':' read -r name limit desc; do
   fi
 done < "$CONFIG_FILE"
 
-# --- Ensure default.prompt injects memory into a [>user] section ---
+# --- Ensure chat_template injects memory into a [>user] section ---
 
-PROMPT_FILE="prompts/default.prompt"
+# chat_template (no extension) takes priority over chat_template.md, mirroring
+# the loader in internal/config/prompt.go.
+PROMPT_FILE="prompts/chat_template"
+[ -f "$PROMPT_FILE" ] || PROMPT_FILE="prompts/chat_template.md"
 MEMORY_DIRECTIVE='{{file:{{$agentpath}}/.data/tools/memory/{{$user}}/core.md}}'
 
 # Line number of the next section header ("[>role]" or "[>>role]") after $1

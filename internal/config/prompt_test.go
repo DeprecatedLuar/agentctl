@@ -34,7 +34,7 @@ Var: {{myvar}}
 {{input}}`
 	
 	os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
-	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template"), []byte(promptContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	
@@ -95,7 +95,7 @@ func TestDirectiveErrors(t *testing.T) {
 		promptContent := `[>system]
 {{unknown:./file}}`
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
-		os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template"), []byte(promptContent), 0644)
 
 		ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
 	_, issues := Parse(tmpDir, ctx)
@@ -120,7 +120,7 @@ func TestDirectiveErrors(t *testing.T) {
 		promptContent := `[>system]
 Result: {{exec:./fail.sh}}`
 		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
-		os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template"), []byte(promptContent), 0644)
 
 		ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
 	prompt, _ := Parse(tmpDir, ctx)
@@ -140,7 +140,7 @@ Result: {{exec:./fail.sh}}`
 
 // TestDirectives_FileRelativeNesting verifies that a {{file:}} directive loaded from
 // within another file resolves relative paths against that file's own directory
-// (not the agent root), while the top-level prompts/default.prompt itself still
+// (not the agent root), while the top-level prompts/chat_template itself still
 // falls back to agent root.
 func TestDirectives_FileRelativeNesting(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -160,7 +160,7 @@ func TestDirectives_FileRelativeNesting(t *testing.T) {
 
 	promptContent := `[>system]
 {{file:./prompts/system.md}}`
-	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "default.prompt"), []byte(promptContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template"), []byte(promptContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,4 +179,44 @@ func TestDirectives_FileRelativeNesting(t *testing.T) {
 	if strings.Contains(content, "WRONG agent-root content") {
 		t.Errorf("nested {{file:./sibling.md}} incorrectly resolved against agent root, got: %s", content)
 	}
+}
+
+// TestResolvePromptPath_ExtensionPriority verifies chat_template (no extension) is
+// preferred over chat_template.md when both exist, and that chat_template.md is
+// used as a fallback when only it exists.
+func TestResolvePromptPath_ExtensionPriority(t *testing.T) {
+	t.Run("no-extension wins when both exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template"), []byte("[>system]\nplain"), 0644)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template.md"), []byte("[>system]\nmarkdown"), 0644)
+
+		ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
+		prompt, issues := Parse(tmpDir, ctx)
+		for _, issue := range issues {
+			if issue.Type == IssueError {
+				t.Fatalf("Parse error: %s", issue.Message)
+			}
+		}
+		if !strings.Contains(prompt.Static[0].Content, "plain") {
+			t.Errorf("expected extensionless chat_template to win, got: %s", prompt.Static[0].Content)
+		}
+	})
+
+	t.Run("falls back to .md when no-extension is absent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.MkdirAll(filepath.Join(tmpDir, "prompts"), 0755)
+		os.WriteFile(filepath.Join(tmpDir, "prompts", "chat_template.md"), []byte("[>system]\nmarkdown"), 0644)
+
+		ctx := resolution.Context{AgentPath: tmpDir, BaseDir: tmpDir}
+		prompt, issues := Parse(tmpDir, ctx)
+		for _, issue := range issues {
+			if issue.Type == IssueError {
+				t.Fatalf("Parse error: %s", issue.Message)
+			}
+		}
+		if !strings.Contains(prompt.Static[0].Content, "markdown") {
+			t.Errorf("expected chat_template.md fallback, got: %s", prompt.Static[0].Content)
+		}
+	})
 }

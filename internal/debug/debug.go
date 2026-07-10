@@ -27,6 +27,7 @@ type RequestData struct {
 // ResponseData contains the full response payload for debugging
 type ResponseData struct {
 	Content   string     `json:"content"`
+	Reasoning string     `json:"reasoning,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	Error     string     `json:"error,omitempty"`
 }
@@ -100,6 +101,10 @@ func RecordExchange(logger *slog.Logger, userFolder string, messages []Message, 
 
 	if !enabled {
 		return
+	}
+
+	if logger != nil && resp.Reasoning != "" {
+		logger.Debug("reasoning", "reasoning", resp.Reasoning)
 	}
 
 	record := ExchangeRecord{
