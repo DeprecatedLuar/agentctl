@@ -9,6 +9,7 @@ func RootPage() *gohelp.Page {
 		Section("Commands",
 			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
+			gohelp.Item("stop", "Stop a running agent daemon (graceful, escalates to SIGKILL after 5s)", "agentctl stop -a my-agent"),
 			gohelp.Item("chat", "Send message to running agent daemon", "agentctl chat -m \"hello\" -a my-agent"),
 			gohelp.Item("inject [role]", "Inject a turn into a session without running agent", "agentctl inject assistant -m \"response\" --session 20250614_abc -a my-agent"),
 			gohelp.Item("deliver", "Deliver literal text to channels without running the agent", "agentctl deliver -m \"Reminder: standup\" --deliver telegram --inject"),

@@ -28,6 +28,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "stop":
+		if err := commands.HandleStop(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "chat":
 		if err := commands.HandleChat(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)

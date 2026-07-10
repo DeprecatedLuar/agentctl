@@ -176,6 +176,16 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("agent %q is already running (lock held on %s)", filepath.Base(absPath), lockPath)
 	}
 
+	// Record our PID so `agentctl stop` can find and signal this process.
+	// The lock itself (not this PID) is the source of truth for "is it
+	// running" - this is only used to know who to signal.
+	if err := lockFd.Truncate(0); err != nil {
+		return fmt.Errorf("write pid to lock file: %w", err)
+	}
+	if _, err := lockFd.WriteAt(fmt.Appendf(nil, "%d\n", os.Getpid()), 0); err != nil {
+		return fmt.Errorf("write pid to lock file: %w", err)
+	}
+
 	// Migrate session files from unlinked contact folders to named identities
 	if err := session.MigrateOnStartup(absPath); err != nil {
 		return fmt.Errorf("session migration failed: %w", err)

@@ -1,1 +1,13 @@
-You are a helpful assistant.
+# Identity
+
+# Constraints
+
+# Persona
+
+# Tone & Style
+
+# Heuristics
+
+# Tool Usage Policy
+
+# Examples
