@@ -103,11 +103,21 @@ func (t *TelegramInterface) Start(ctx context.Context) error {
 	}
 }
 
-// send delivers a Telegram message/action and logs any error instead of
-// silently discarding it.
+// send delivers a Telegram message and logs any error instead of silently
+// discarding it.
 func (t *TelegramInterface) send(bot *tgbotapi.BotAPI, msg tgbotapi.Chattable) {
 	if _, err := bot.Send(msg); err != nil && t.logger != nil {
 		t.logger.Error("telegram send failed", "error", err)
+	}
+}
+
+// sendAction delivers a Telegram chat action (e.g. typing indicator) and logs
+// any error. Chat actions are answered with a bare bool by the Telegram API,
+// so they must go through bot.Request, not bot.Send (which decodes into
+// tgbotapi.Message).
+func (t *TelegramInterface) sendAction(bot *tgbotapi.BotAPI, action tgbotapi.Chattable) {
+	if _, err := bot.Request(action); err != nil && t.logger != nil {
+		t.logger.Error("telegram send action failed", "error", err)
 	}
 }
 
@@ -216,7 +226,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
 	// Send typing immediately
 	action := tgbotapi.NewChatAction(chatID, "typing")
-	t.send(bot, action)
+	t.sendAction(bot, action)
 
 	ticker := time.NewTicker(typingInterval)
 	defer ticker.Stop()
@@ -225,7 +235,7 @@ func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.Bo
 		select {
 		case <-ticker.C:
 			action := tgbotapi.NewChatAction(chatID, "typing")
-			t.send(bot, action)
+			t.sendAction(bot, action)
 		case <-ctx.Done():
 			return
 		}
