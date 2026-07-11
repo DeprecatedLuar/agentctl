@@ -13,6 +13,7 @@ go test ./internal/config -v -run TestParse_BasicSections
 ./agentctl init _test-agent
 ./agentctl run _test-agent          # Terminal 1
 ./agentctl chat "hello" -a _test-agent  # Terminal 2
+./agentctl -m "hello" -a _test-agent    # shortcut: unrecognized/no subcommand falls through to chat
 ```
 
 **Testing requirement:** Use `_test-agent` with `openrouter/free` model. Never create new test agents.
@@ -59,6 +60,7 @@ tools/*.toml            # Command + params (auto-discover or explicit)
 - Delivery: --deliver/--inject → HandleMessageWithOptions(MessageOptions)
 - Raw delivery: `deliver` command → HandleMessageWithOptions(MessageOptions{Raw: true}) → skips agent call, delivers Content verbatim
 - Commands: Interface detects "/" → syscommands.Parse() → helpers → format → return (no orchestrator)
+- CLI dispatch shortcut: no subcommand, or an unrecognized one, forwards straight to `chat` (`cmd/agentctl/main.go`) — e.g. `agentctl -m "hi" -a my-agent` == `agentctl chat -m "hi" -a my-agent`. Chat's own flag parser/`message.Resolve`/`registry.ResolveAgentPath` report errors as normal. `-a`/`--agent` falls back to `$AGENTCTL_AGENT` when omitted, same pattern as `-u`/`$AGENTCTL_USER` and `-s`/`$AGENTCTL_SESSION`.
 
 ## Config Files
 

@@ -10,8 +10,11 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		help.HandleHelp(nil)
-		os.Exit(1)
+		if err := commands.HandleChat(nil); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	cmd := os.Args[1]
@@ -69,7 +72,13 @@ func main() {
 			os.Exit(1)
 		}
 	default:
-		help.HandleHelp(nil)
-		os.Exit(1)
+		// Not a recognized subcommand: forward to chat as a shortcut,
+		// e.g. `agentctl -m "hello"` == `agentctl chat -m "hello"`.
+		// Pass the full tail so the unrecognized token itself (a flag
+		// like -m/-a, or a typo) is what chat's parser sees first.
+		if err := commands.HandleChat(os.Args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }

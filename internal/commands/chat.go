@@ -35,6 +35,7 @@ const (
 	// flagDebug is defined in run.go and shared across commands
 
 	// Environment variables
+	envAgent   = "AGENTCTL_AGENT"
 	envUser    = "AGENTCTL_USER"
 	envSession = "AGENTCTL_SESSION"
 )
@@ -61,6 +62,7 @@ type chatResponse struct {
 func HandleChat(args []string) error {
 	// Parse arguments
 	path := "."
+	pathGiven := false
 	user := ""
 	sessionKey := ""
 	text := ""
@@ -77,6 +79,7 @@ func HandleChat(args []string) error {
 				return 0, fmt.Errorf("%s requires a path or name", flagAgent)
 			}
 			path = args[i+1]
+			pathGiven = true
 			return 2, nil
 		}},
 		{names: []string{flagUser, flagUserS}, parse: func(args []string, i int) (int, error) {
@@ -134,6 +137,11 @@ func HandleChat(args []string) error {
 	}
 
 	// Apply env vars (flags/args take priority)
+	if !pathGiven {
+		if envPath := os.Getenv(envAgent); envPath != "" {
+			path = envPath
+		}
+	}
 	if user == "" {
 		user = os.Getenv(envUser)
 	}

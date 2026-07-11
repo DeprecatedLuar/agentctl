@@ -10,7 +10,7 @@ func RootPage() *gohelp.Page {
 			gohelp.Item("init [path]", "Initialize agent folder with config templates", "agentctl init my-agent"),
 			gohelp.Item("run [path]", "Start agent daemon with configured interfaces", "agentctl run my-agent"),
 			gohelp.Item("stop", "Stop a running agent daemon (graceful, escalates to SIGKILL after 5s)", "agentctl stop -a my-agent"),
-			gohelp.Item("chat", "Send message to running agent daemon", "agentctl chat -m \"hello\" -a my-agent"),
+			gohelp.Item("chat", "Send message to running agent daemon (default when no/unrecognized command given)", "agentctl chat -m \"hello\" -a my-agent  (or just: agentctl -m \"hello\" -a my-agent)"),
 			gohelp.Item("inject [role]", "Inject a turn into a session without running agent", "agentctl inject assistant -m \"response\" --session 20250614_abc -a my-agent"),
 			gohelp.Item("deliver", "Deliver literal text to channels without running the agent", "agentctl deliver -m \"Reminder: standup\" --deliver telegram --inject"),
 			gohelp.Item("toolrun <name>", "Execute a tool manually with parameters", "agentctl toolrun create_schedule --name=test --cron=\"0 * * * *\" --message=\"Test\""),
@@ -20,7 +20,7 @@ func RootPage() *gohelp.Page {
 		).
 		Section("Chat Flags",
 			gohelp.Item("--message, -m <text>", "Message text (falls back to $AGENTCTL_MESSAGE, then opens $EDITOR on a temp file if interactive)"),
-			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory)"),
+			gohelp.Item("--agent, -a <path>", "Agent folder path (default: current directory, falls back to $AGENTCTL_AGENT)"),
 			gohelp.Item("--session, -s <id>", "Session ID for explicit session selection"),
 			gohelp.Item("--user, -u <id>", "User ID for explicit user selection"),
 			gohelp.Item("--deliver <list>", "Deliver response to channels (comma-separated, e.g., telegram,cli)"),
