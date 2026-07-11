@@ -96,8 +96,10 @@ func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content s
 // nil or empty applies no filtering.
 func (o *Orchestrator) handleMessage(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
 
-	// Execute prerun hook before config load
-	if err := hooks.ExecutePrerun(o.AgentFolder, nil, o.Logger); err != nil {
+	// Execute prerun hook before config load. Model/provider aren't known yet
+	// (config hasn't loaded), so the context passed here leaves them empty.
+	prerunCtx := resolution.NewContext(o.AgentFolder, userID, "", sessionID, iface, "", "", nil)
+	if err := hooks.ExecutePrerun(o.AgentFolder, nil, resolution.SystemEnv(prerunCtx), o.Logger); err != nil {
 		// Non-fatal, but log if something catastrophic happened
 		o.Logger.Error("prerun hook error", "error", err)
 	}

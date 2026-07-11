@@ -1,0 +1,32 @@
+command = "./scripts/memory_append.sh"
+description = """
+Append an observation to your long-term memory log. Use this whenever the user shares a fact, preference, or event that might matter later, even if you're not sure it belongs in your always-loaded memory. This is a raw log — write freely, one entry per fact. A separate process later decides what's worth keeping.
+"""
+
+[user]
+type = "string"
+return = "{{$user}}"
+
+[content]
+description = "The observation, one sentence, factual and third-person (e.g. 'User prefers TypeScript over Python for new projects.')"
+type = "string"
+required = true
+enabled = true
+
+[importance]
+description = "1-10. Low (1-3) for trivia. High (7-10) for explicit preferences, decisions, or requests the user stated directly."
+type = "string"
+required = true
+enabled = true
+
+[type]
+type = "string"
+return = "observation"
+
+[timestamp]
+type = "string"
+return = "{{$timestamp}}"
+
+[session_ref]
+type = "string"
+return = "{{$session}}"

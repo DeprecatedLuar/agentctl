@@ -105,6 +105,7 @@ return = ""     # Override with literal/directive (auto-hides from AI)
 - `tools = []` recursively finds all .toml (including subdirs)
 - `tools = ["name"]` only loads top-level tools/ (no subdirs)
 - Parameters injected as both `{{var}}` (inline) and `$TOOL_VAR` (env) for safe multiline handling
+- Also gets `$AGENTCTL_*` env vars (see Template Resolution below) — same values as `{{$var}}` templates
 
 **.data/contacts.toml:**
 ```toml
@@ -149,6 +150,8 @@ Two-phase pipeline in `internal/resolution/`:
 
 Used by: prompt parser, tool return values
 
+`resolution.SystemEnv(ctx)` exposes the same system variables as `$AGENTCTL_<NAME>` env vars (e.g. `$AGENTCTL_USER`, `$AGENTCTL_SESSION`) — injected into both prerun scripts and tool shell commands, so scripts don't have to rely on OS env (`$USER`, etc.) for agentctl's resolved identity.
+
 ## Hot-Reload
 
 Orchestrator loads config/tools/prompt on **every request**:
@@ -162,7 +165,7 @@ Runs before each agent execution:
 - Checks `.prerun.sh` first (hidden), fallback to `prerun.sh`
 - Non-fatal: errors logged, agent continues
 - Common: source tool-specific `.prerun.sh` files, mkdir -p, touch files
-- Runs from agent root, access to .env vars
+- Runs from agent root, access to .env vars and `$AGENTCTL_*` context (see Template Resolution) — but since prerun runs before config load, `$AGENTCTL_MODEL`/`$AGENTCTL_PROVIDER` may be empty depending on the caller
 
 ## Debug
 

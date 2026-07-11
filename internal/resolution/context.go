@@ -3,6 +3,7 @@ package resolution
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -84,6 +85,19 @@ func buildSystemVariables(ctx Context) map[string]string {
 	vars["$provider"] = ctx.Provider
 
 	return vars
+}
+
+// SystemEnv returns the same values as {{$var}} template substitution
+// (buildSystemVariables), as AGENTCTL_-prefixed env vars, for injection
+// into subprocess environments (prerun scripts, tool shell commands).
+func SystemEnv(ctx Context) map[string]string {
+	sysVars := buildSystemVariables(ctx)
+	env := make(map[string]string, len(sysVars))
+	for name, value := range sysVars {
+		envKey := "AGENTCTL_" + strings.ToUpper(strings.TrimPrefix(name, "$"))
+		env[envKey] = value
+	}
+	return env
 }
 
 // formatNow renders a human-readable timestamp like

@@ -11,7 +11,7 @@ import (
 // ExecutePrerun runs the prerun script if it exists
 // Checks .prerun.sh first (hidden, preferred), then prerun.sh (fallback)
 // Non-fatal: logs errors but returns nil to allow agent execution
-func ExecutePrerun(agentFolder string, configEnv map[string]string, logger *slog.Logger) error {
+func ExecutePrerun(agentFolder string, configEnv map[string]string, systemEnv map[string]string, logger *slog.Logger) error {
 	// Check for .prerun.sh first (hidden, preferred)
 	prerunPath := filepath.Join(agentFolder, ".prerun.sh")
 	scriptName := ".prerun.sh"
@@ -33,7 +33,7 @@ func ExecutePrerun(agentFolder string, configEnv map[string]string, logger *slog
 		agentFolder, // workDir
 		agentFolder, // agentFolder (.env location)
 		configEnv,
-		nil, // toolEnv (not a tool execution)
+		systemEnv, // AGENTCTL_* resolved context vars
 	)
 
 	// Log execution

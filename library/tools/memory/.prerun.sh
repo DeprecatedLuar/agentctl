@@ -2,7 +2,7 @@
 # Memory tool prerun - self-heal every file declared in memory.config for
 # this user, and ensure chat_template loads core.md via a [>user] section.
 
-mkdir -p .data/tools/memory/"$USER"
+mkdir -p .data/tools/memory/"$AGENTCTL_USER"
 mkdir -p config/tools
 
 CONFIG_FILE="config/tools/memory.conf"
@@ -29,7 +29,7 @@ while IFS=':' read -r name limit desc; do
       ;;
   esac
 
-  MEM_FILE=".data/tools/memory/$USER/${name}.md"
+  MEM_FILE=".data/tools/memory/$AGENTCTL_USER/${name}.md"
   if [ ! -f "$MEM_FILE" ]; then
     echo "#PLACEHOLDER" > "$MEM_FILE"
   fi
