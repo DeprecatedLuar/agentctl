@@ -105,7 +105,7 @@ return = ""     # Override with literal/directive (auto-hides from AI)
 - `tools = []` recursively finds all .toml (including subdirs)
 - `tools = ["name"]` only loads top-level tools/ (no subdirs)
 - Parameters injected as both `{{var}}` (inline) and `$TOOL_VAR` (env) for safe multiline handling
-- Also gets `$AGENTCTL_*` env vars (see Template Resolution below) — same values as `{{$var}}` templates
+- Need system context (user, session, etc.)? Declare a hidden param with `return = "{{$var}}"` (still shows up as `$TOOL_VAR`) — no ambient injection, stays declarative
 
 **.data/contacts.toml:**
 ```toml
@@ -150,7 +150,7 @@ Two-phase pipeline in `internal/resolution/`:
 
 Used by: prompt parser, tool return values
 
-`resolution.SystemEnv(ctx)` exposes the same system variables as `$AGENTCTL_<NAME>` env vars (e.g. `$AGENTCTL_USER`, `$AGENTCTL_SESSION`) — injected into both prerun scripts and tool shell commands, so scripts don't have to rely on OS env (`$USER`, etc.) for agentctl's resolved identity.
+`resolution.SystemEnv(ctx)` exposes the same system variables as `$AGENTCTL_<NAME>` env vars (e.g. `$AGENTCTL_USER`, `$AGENTCTL_SESSION`) — injected into prerun scripts only, since prerun has no params schema to declare through (unlike tools, which opt in explicitly via `return = "{{$var}}"`; see tools/*.toml above).
 
 ## Hot-Reload
 
