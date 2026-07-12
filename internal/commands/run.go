@@ -18,6 +18,7 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 	"github.com/DeprecatedLuar/agentctl/internal/resolution"
+	"github.com/DeprecatedLuar/agentctl/internal/routines"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
 )
 
@@ -103,6 +104,14 @@ func HandleRun(args []string) error {
 	// Load prompt for validation (minimal context - only syntax check)
 	_, promptIssues := config.Parse(absPath, resolution.NewValidationContext(absPath))
 	allIssues = append(allIssues, promptIssues...)
+
+	// Load routines for validation. Unlike tools' "malformed file just
+	// doesn't load" philosophy, a broken routine hard-fails startup here -
+	// same as every other issue in allIssues below - since the blast radius
+	// (a routine typo silently preventing the agent from starting at all)
+	// is worse than letting it through.
+	_, routineIssues := config.LoadRoutines(absPath)
+	allIssues = append(allIssues, routineIssues...)
 
 	// agentCfg must be loaded before we can build a logger or header (needs
 	// provider/model/logging settings); if it's nil, config loading itself
@@ -258,6 +267,11 @@ func HandleRun(args []string) error {
 
 	// Assign dispatcher to orchestrator
 	orch.Dispatcher = dispatcher
+
+	// Start the routines scheduler (no-op if routines/ doesn't exist or is
+	// empty). Runs for the lifetime of ctx, same as the interface goroutines
+	// below.
+	routines.Start(ctx, absPath, agentCfg.Environment, lg, debug)
 
 	// Start interfaces
 	errChan := make(chan error, len(interfaceInstances))

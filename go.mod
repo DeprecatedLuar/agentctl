@@ -5,9 +5,11 @@ go 1.25.5
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/DeprecatedLuar/gohelp-luar v0.2.3
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/joho/godotenv v1.5.1
 	github.com/openai/openai-go v1.12.0
+	github.com/teambition/rrule-go v1.8.2
 	golang.org/x/term v0.27.0
 )
 
