@@ -1,0 +1,18 @@
+command = "./scripts/cancel_scheduled_message.sh"
+description = """
+Cancel a pending scheduled message previously created by schedule_message.
+Use list_scheduled_messages first to find the job_id.
+"""
+
+[job_id]
+description = "The job ID shown by list_scheduled_messages."
+type = "string"
+required = true
+
+[user]
+type = "string"
+return = "{{$user}}"
+
+[agent]
+type = "string"
+return = "{{$agentpath}}"

@@ -1,0 +1,15 @@
+command = "./scripts/list_scheduled_messages.sh"
+description = """
+List this user's pending scheduled messages created by schedule_message,
+with each job's ID, delivery time, and text. Call this before
+schedule_message to avoid creating a duplicate, or to find a job_id to pass
+to cancel_scheduled_message.
+"""
+
+[user]
+type = "string"
+return = "{{$user}}"
+
+[agent]
+type = "string"
+return = "{{$agentpath}}"
