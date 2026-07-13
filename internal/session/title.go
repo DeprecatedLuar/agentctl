@@ -70,9 +70,18 @@ func GenerateTitle(store SessionStore, cfg *config.AgentConfig, agentFolder, use
 	title := strings.TrimSpace(response)
 	title = strings.Trim(title, ".,!?;:")
 
-	// Update metadata
+	// Update metadata. Locked (unlike the LLM call above) since this is the
+	// only part that touches shared session state - by the time this runs,
+	// the turn that triggered title generation has already released its own
+	// lock (title's LLM call happens first, then this), so no self-deadlock.
+	unlock, err := LockSession(agentFolder, userID, sessionID, logger)
+	if err != nil {
+		return fmt.Errorf("failed to lock session: %w", err)
+	}
 	meta.Title = title
-	if err := store.SetMeta(userID, sessionID, meta); err != nil {
+	err = store.SetMeta(userID, sessionID, meta)
+	unlock()
+	if err != nil {
 		return fmt.Errorf("failed to set metadata: %w", err)
 	}
 

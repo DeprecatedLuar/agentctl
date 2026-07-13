@@ -31,7 +31,7 @@ const (
 	lastSessionTempPattern = ".last_session.*.tmp"
 
 	// Parsing
-	lastSessionSeparator    = "="
+	lastSessionSeparator     = "="
 	lastSessionExpectedParts = 2
 )
 
@@ -51,8 +51,9 @@ type metaLine struct {
 	Type      string `json:"type"` // Always "meta"
 	Title     string `json:"title"`
 	CreatedAt int64  `json:"created_at"`
-	Interface string `json:"interface"`
-	UserID    string `json:"user_id"`
+	// Gateway is FROZEN on-disk as "interface" (json tag) - see SessionMeta.Gateway.
+	Gateway string `json:"interface"`
+	UserID  string `json:"user_id"`
 }
 
 // sessionFilePath returns the path to a session's JSONL file
@@ -173,7 +174,7 @@ func (s *JSONLStore) Save(userID, sessionID, role, content string) error {
 			Type:      metaType,
 			Title:     "", // Empty initially, will be set by auto-title
 			CreatedAt: time.Now().Unix(),
-			Interface: "", // Will be set when we know the interface
+			Gateway:   "", // Will be set when we know the gateway
 			UserID:    userID,
 		}
 
@@ -248,7 +249,7 @@ func (s *JSONLStore) GetMeta(userID, sessionID string) (SessionMeta, error) {
 	return SessionMeta{
 		Title:     meta.Title,
 		CreatedAt: meta.CreatedAt,
-		Interface: meta.Interface,
+		Gateway:   meta.Gateway,
 		UserID:    meta.UserID,
 	}, nil
 }
@@ -291,7 +292,7 @@ func (s *JSONLStore) SetMeta(userID, sessionID string, meta SessionMeta) error {
 		Type:      metaType,
 		Title:     meta.Title,
 		CreatedAt: meta.CreatedAt,
-		Interface: meta.Interface,
+		Gateway:   meta.Gateway,
 		UserID:    meta.UserID,
 	}
 
@@ -377,8 +378,8 @@ func writeLastSessionEntries(w io.Writer, entries map[string]string) error {
 	return nil
 }
 
-// GetLast returns the last session ID for this user+interface combo.
-func (s *JSONLStore) GetLast(userID, iface string) (string, error) {
+// GetLast returns the last session ID for this user+gateway combo.
+func (s *JSONLStore) GetLast(userID, gateway string) (string, error) {
 	lastPath := filepath.Join(s.AgentFolder, sessionsDir, userID, lastSessionFile)
 
 	file, err := os.Open(lastPath)
@@ -395,11 +396,11 @@ func (s *JSONLStore) GetLast(userID, iface string) (string, error) {
 		return "", fmt.Errorf("failed to parse .last_session: %w", err)
 	}
 
-	return entries[iface], nil
+	return entries[gateway], nil
 }
 
-// SetLast updates the last session ID for this user+interface atomically.
-func (s *JSONLStore) SetLast(userID, iface, sessionID string) error {
+// SetLast updates the last session ID for this user+gateway atomically.
+func (s *JSONLStore) SetLast(userID, gateway, sessionID string) error {
 	userDir := filepath.Join(s.AgentFolder, sessionsDir, userID)
 	lastPath := filepath.Join(userDir, lastSessionFile)
 
@@ -420,8 +421,8 @@ func (s *JSONLStore) SetLast(userID, iface, sessionID string) error {
 		entries = parsed
 	}
 
-	// Update/add entry for this interface
-	entries[iface] = sessionID
+	// Update/add entry for this gateway
+	entries[gateway] = sessionID
 
 	// Write to temp file
 	tmpFile, err := os.CreateTemp(userDir, lastSessionTempPattern)
@@ -488,13 +489,13 @@ func (s *JSONLStore) ListSessions(userID string) ([]SessionMeta, error) {
 }
 
 // EnsureContact delegates to the contacts.go implementation
-func (s *JSONLStore) EnsureContact(iface, platformID, displayName, username string) error {
-	return EnsureContact(s.AgentFolder, iface, platformID, displayName, username)
+func (s *JSONLStore) EnsureContact(gateway, platformID, displayName, username string) error {
+	return EnsureContact(s.AgentFolder, gateway, platformID, displayName, username)
 }
 
 // ResolveUser delegates to the identity.go implementation
-func (s *JSONLStore) ResolveUser(iface, platformID string) (string, error) {
-	return ResolveUser(s.AgentFolder, iface, platformID)
+func (s *JSONLStore) ResolveUser(gateway, platformID string) (string, error) {
+	return ResolveUser(s.AgentFolder, gateway, platformID)
 }
 
 // SessionExists checks if a session file exists
@@ -533,7 +534,7 @@ func (s *JSONLStore) CreateSession(userID, sessionID string) error {
 		Type:      metaType,
 		Title:     "",
 		CreatedAt: time.Now().Unix(),
-		Interface: "",
+		Gateway:   "",
 		UserID:    userID,
 	}
 

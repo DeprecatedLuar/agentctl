@@ -31,7 +31,7 @@ const (
 type Input struct {
 	UserID    string
 	SessionID string
-	Interface string
+	Gateway   string
 	Content   string
 }
 
@@ -53,7 +53,7 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 		input.UserID,
 		"", // username not available here (could be added to Input if needed)
 		input.SessionID,
-		input.Interface,
+		input.Gateway,
 		cfg.Agent.Model,
 		cfg.Agent.Provider,
 		cfg.Environment,

@@ -27,7 +27,7 @@ func TestInjectTurn(t *testing.T) {
 	}
 
 	// Test successful injection
-	err := InjectTurn(store, "alice", sessionID, "assistant", "hi there")
+	err := InjectTurn(tmpDir, store, "alice", sessionID, "assistant", "hi there")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestInjectTurn(t *testing.T) {
 	}
 
 	// Test injection into non-existent session
-	err = InjectTurn(store, "alice", "nonexistent", "user", "test")
+	err = InjectTurn(tmpDir, store, "alice", "nonexistent", "user", "test")
 	if err == nil {
 		t.Error("expected error for non-existent session, got nil")
 	}

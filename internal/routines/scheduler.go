@@ -1,5 +1,5 @@
 // Package routines implements agentctl's in-process routine scheduler: an
-// agent's own `agentctl run` daemon periodically checking routines/*.toml
+// agent's own `agentctl serve` daemon periodically checking routines/*.toml
 // for anything due and firing their command. There is no system crontab
 // involved - a routine only ever lives inside its owning agent's process
 // memory, and only fires while that daemon is running.

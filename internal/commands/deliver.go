@@ -1,23 +1,23 @@
 package commands
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
-	"path/filepath"
+	"os/user"
 
+	"github.com/DeprecatedLuar/agentctl/internal"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways/cli"
 	"github.com/DeprecatedLuar/agentctl/internal/message"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
 )
 
-// HandleDeliver sends literal text straight to one or more channels via the
-// running agent daemon, bypassing the LLM entirely (unlike chat).
+// HandleDeliver sends literal text straight to one or more channels via a
+// one-shot Orchestrator, bypassing the LLM entirely (unlike chat). No daemon
+// is required.
 func HandleDeliver(args []string) error {
 	// Parse arguments
 	path := "."
-	user := ""
+	userFlag := ""
 	text := ""
 	messageGiven := false
 	inject := false
@@ -37,7 +37,7 @@ func HandleDeliver(args []string) error {
 			if i+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires an id", flagUser)
 			}
-			user = args[i+1]
+			userFlag = args[i+1]
 			return 2, nil
 		}},
 		{names: []string{flagInject}, parse: func(args []string, i int) (int, error) {
@@ -77,8 +77,8 @@ func HandleDeliver(args []string) error {
 	}
 
 	// Apply env vars (flags/args take priority)
-	if user == "" {
-		user = os.Getenv(envUser)
+	if userFlag == "" {
+		userFlag = os.Getenv(envUser)
 	}
 
 	text, err := message.Resolve(text, messageGiven)
@@ -99,42 +99,41 @@ func HandleDeliver(args []string) error {
 		return err
 	}
 
-	// Connect to socket
-	socketPath := filepath.Join(absPath, chatDataDir, socketFilename)
-	conn, err := net.Dial("unix", socketPath)
+	_, lg, err := loadAgentAndLogger(absPath, false)
 	if err != nil {
-		return fmt.Errorf("failed to connect to agent (is it running?): %w", err)
-	}
-	defer conn.Close()
-
-	// Send request
-	req := chatRequest{
-		User:    user,
-		Message: text,
-		Deliver: deliver,
-		Inject:  inject,
-		Role:    role,
-		Note:    note,
-		Raw:     true,
-	}
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return err
 	}
 
-	// Read response
-	scanner := bufio.NewScanner(conn)
-	if !scanner.Scan() {
-		return fmt.Errorf("no response from agent")
+	// Build only the Senders the requested channels need
+	assembled, err := assembleOrchestrator(absPath, nil, lg, false, false, deliveryGateways(deliver))
+	if err != nil {
+		return err
 	}
 
-	var resp chatResponse
-	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
-		return fmt.Errorf("invalid response: %w", err)
+	// Mirrors the old socket-server's handleWithOptions: an explicit --user
+	// resolves directly; otherwise fall back to the OS user as contact ID,
+	// same identity a plain `chat` would use.
+	currentUser, uerr := user.Current()
+	username := "unknown"
+	if uerr == nil {
+		username = currentUser.Username
 	}
 
-	if resp.Error != "" {
-		return fmt.Errorf("agent error: %s", resp.Error)
+	opts := internal.MessageOptions{
+		Gateway:     cli.GatewayName,
+		ContactID:   username,
+		DisplayName: username,
+		Content:     text,
+		UserID:      userFlag,
+		Deliver:     deliver,
+		Inject:      inject,
+		Role:        role,
+		Note:        note,
+		Raw:         true,
+	}
+
+	if _, err := assembled.Orchestrator.HandleMessageWithOptions(opts); err != nil {
+		return fmt.Errorf("agent error: %w", err)
 	}
 
 	fmt.Printf("Delivered to: %v\n", deliver)

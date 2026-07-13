@@ -1,24 +1,22 @@
 package commands
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces/cli"
+	"github.com/DeprecatedLuar/agentctl/internal"
+	"github.com/DeprecatedLuar/agentctl/internal/config"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways/cli"
 	"github.com/DeprecatedLuar/agentctl/internal/message"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
+	"github.com/DeprecatedLuar/agentctl/internal/session"
+	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
 )
 
 const (
-	// File and directory names
-	chatDataDir    = ".data"
-	socketFilename = "agent.sock"
-
 	// Flags
 	flagAgent    = "--agent"
 	flagAgentS   = "-a"
@@ -32,44 +30,34 @@ const (
 	flagTools    = "--tools"
 	flagMessage  = "--message"
 	flagMessageS = "-m"
-	// flagDebug is defined in run.go and shared across commands
+	flagModel    = "--model"
+	flagProvider = "--provider"
+	// flagDebug is defined in serve.go and shared across commands
 
 	// Environment variables
-	envAgent   = "AGENTCTL_AGENT"
-	envUser    = "AGENTCTL_USER"
-	envSession = "AGENTCTL_SESSION"
+	envAgent    = "AGENTCTL_AGENT"
+	envUser     = "AGENTCTL_USER"
+	envSession  = "AGENTCTL_SESSION"
+	envModel    = "AGENTCTL_MODEL"
+	envProvider = "AGENTCTL_PROVIDER"
 )
 
-type chatRequest struct {
-	User    string   `json:"user"`
-	Session string   `json:"session"`
-	Message string   `json:"message"`
-	Debug   bool     `json:"debug"`
-	Deliver []string `json:"deliver,omitempty"`
-	Inject  bool     `json:"inject,omitempty"`
-	Role    string   `json:"role,omitempty"`
-	Note    string   `json:"note,omitempty"`
-	Tools   []string `json:"tools,omitempty"`
-	Raw     bool     `json:"raw,omitempty"`
-}
-
-type chatResponse struct {
-	Response    string `json:"response"`
-	Error       string `json:"error,omitempty"`
-	SessionFile string `json:"session_file,omitempty"` // Populated when Debug=true
-}
-
+// HandleChat runs a single conversation turn in-process (no daemon
+// required): resolve agent path, assemble an Orchestrator, call the
+// matching MessageHandler method directly, print the response, exit.
 func HandleChat(args []string) error {
 	// Parse arguments
 	path := "."
 	pathGiven := false
-	user := ""
+	userFlag := ""
 	sessionKey := ""
 	text := ""
 	messageGiven := false
 	debug := false
 	inject := false
 	role := ""
+	model := ""
+	provider := ""
 	var deliver []string
 	var tools []string
 
@@ -86,7 +74,7 @@ func HandleChat(args []string) error {
 			if i+1 >= len(args) {
 				return 0, fmt.Errorf("%s requires an id", flagUser)
 			}
-			user = args[i+1]
+			userFlag = args[i+1]
 			return 2, nil
 		}},
 		{names: []string{flagSession, flagSessionS}, parse: func(args []string, i int) (int, error) {
@@ -128,6 +116,20 @@ func HandleChat(args []string) error {
 			debug = true
 			return 1, nil
 		}},
+		{names: []string{flagModel}, parse: func(args []string, i int) (int, error) {
+			if i+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a model name", flagModel)
+			}
+			model = args[i+1]
+			return 2, nil
+		}},
+		{names: []string{flagProvider}, parse: func(args []string, i int) (int, error) {
+			if i+1 >= len(args) {
+				return 0, fmt.Errorf("%s requires a provider name", flagProvider)
+			}
+			provider = args[i+1]
+			return 2, nil
+		}},
 	}
 
 	if err := parseFlags(args, rules, func(arg string) error {
@@ -142,11 +144,17 @@ func HandleChat(args []string) error {
 			path = envPath
 		}
 	}
-	if user == "" {
-		user = os.Getenv(envUser)
+	if userFlag == "" {
+		userFlag = os.Getenv(envUser)
 	}
 	if sessionKey == "" {
 		sessionKey = os.Getenv(envSession)
+	}
+	if model == "" {
+		model = os.Getenv(envModel)
+	}
+	if provider == "" {
+		provider = os.Getenv(envProvider)
 	}
 
 	text, err := message.Resolve(text, messageGiven)
@@ -160,52 +168,77 @@ func HandleChat(args []string) error {
 		return err
 	}
 
-	// Connect to socket
-	socketPath := filepath.Join(absPath, chatDataDir, socketFilename)
-	conn, err := net.Dial("unix", socketPath)
+	_, lg, err := loadAgentAndLogger(absPath, debug)
 	if err != nil {
-		return fmt.Errorf("failed to connect to agent (is it running?): %w", err)
-	}
-	defer conn.Close()
-
-	// Send request
-	req := chatRequest{
-		User:    user,
-		Session: sessionKey,
-		Message: text,
-		Debug:   debug,
-		Deliver: deliver,
-		Inject:  inject,
-		Role:    role,
-		Tools:   tools,
-	}
-	encoder := json.NewEncoder(conn)
-	if err := encoder.Encode(req); err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return err
 	}
 
-	// Read response
-	scanner := bufio.NewScanner(conn)
-	if !scanner.Scan() {
-		return fmt.Errorf("no response from agent")
+	// Only construct Senders for gateways actually referenced by --deliver -
+	// a plain chat with no delivery should never fail because e.g. telegram
+	// is misconfigured.
+	assembled, err := assembleOrchestrator(absPath, nil, lg, false, debug, deliveryGateways(deliver))
+	if err != nil {
+		return err
+	}
+	assembled.Orchestrator.Overrides = config.Overrides{Model: model, Provider: provider}
+	defer assembled.Orchestrator.Wait()
+
+	currentUser, uerr := user.Current()
+	username := "unknown"
+	if uerr == nil {
+		username = currentUser.Username
 	}
 
-	var resp chatResponse
-	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
-		return fmt.Errorf("invalid response: %w", err)
+	hasDeliveryOptions := len(deliver) > 0 || len(tools) > 0
+
+	var response string
+	var debugSessionFile string
+
+	switch {
+	case hasDeliveryOptions:
+		opts := internal.MessageOptions{
+			Gateway:     cli.GatewayName,
+			ContactID:   username,
+			DisplayName: username,
+			Content:     text,
+			UserID:      userFlag,
+			SessionID:   sessionKey,
+			Deliver:     deliver,
+			Inject:      inject,
+			Role:        role,
+			Tools:       tools,
+		}
+		response, err = assembled.Orchestrator.HandleMessageWithOptions(opts)
+
+	case userFlag != "" || sessionKey != "":
+		resolved, rerr := session.ResolveExplicit(assembled.Store, absPath, userFlag, sessionKey, cli.GatewayName)
+		if rerr != nil {
+			return fmt.Errorf("failed to find session: %w", rerr)
+		}
+		response, err = assembled.Orchestrator.HandleExplicitMessage(resolved.UserID, resolved.SessionID, cli.GatewayName, text)
+		if debug {
+			debugSessionFile = filepath.Join(".data", "sessions", resolved.UserID, resolved.SessionID+".jsonl")
+		}
+
+	default:
+		cmd, cmdErr := syscommands.Parse(text)
+		if cmdErr == nil {
+			response, err = cli.HandleCommand(assembled.Store, absPath, username, cmd)
+		} else {
+			response, err = assembled.Orchestrator.HandleMessage(cli.GatewayName, username, username, "", text)
+		}
 	}
 
-	if resp.Error != "" {
-		return fmt.Errorf("agent error: %s", resp.Error)
+	if err != nil {
+		return fmt.Errorf("agent error: %w", err)
 	}
 
 	// Print response with ANSI formatting if stdout is a terminal
 	// Auto-detects TTY: formats for interactive use, plain text for pipes/redirects
-	fmt.Println(cli.FormatForCLI(resp.Response))
+	fmt.Println(cli.FormatForCLI(response))
 
-	// Print debug info if requested
-	if debug && resp.SessionFile != "" {
-		fmt.Printf("\n[debug] session: %s\n", resp.SessionFile)
+	if debug && debugSessionFile != "" {
+		fmt.Printf("\n[debug] session: %s\n", debugSessionFile)
 	}
 
 	return nil

@@ -19,7 +19,7 @@ const (
 // MigrateOnStartup reads identities.toml and for each identity,
 // checks if any of its contacts still have their own unlinked folder.
 // If found, renames all session files into the named identity folder.
-// Merges .last_session by keeping the most recent timestamp per interface.
+// Merges .last_session by keeping the most recent timestamp per gateway.
 // Safe to call multiple times (idempotent).
 func MigrateOnStartup(agentFolder string) error {
 	identities, err := LoadIdentities(agentFolder)
@@ -35,14 +35,14 @@ func MigrateOnStartup(agentFolder string) error {
 
 		// Process each contact in this identity
 		for _, contactKey := range identity.Contacts {
-			iface, platformID, err := ParseContactKey(contactKey)
+			gateway, platformID, err := ParseContactKey(contactKey)
 			if err != nil {
 				// Skip malformed contact keys
 				continue
 			}
 
 			// Check if unlinked folder exists
-			unlinkedFolder := UnlinkedFolderName(iface, platformID)
+			unlinkedFolder := UnlinkedFolderName(gateway, platformID)
 			unlinkedPath := filepath.Join(sessionsRoot, unlinkedFolder)
 
 			if _, err := os.Stat(unlinkedPath); os.IsNotExist(err) {
@@ -66,7 +66,7 @@ func MigrateOnStartup(agentFolder string) error {
 }
 
 // migrateFolder moves all session files from srcDir to dstDir.
-// Merges .last_session files by keeping most recent session per interface.
+// Merges .last_session files by keeping most recent session per gateway.
 func migrateFolder(srcDir, dstDir string) error {
 	// Ensure destination directory exists
 	if err := os.MkdirAll(dstDir, dirPermissions); err != nil {
@@ -104,7 +104,7 @@ func migrateFolder(srcDir, dstDir string) error {
 }
 
 // mergeLastSession merges two .last_session files, keeping the most recent
-// session ID per interface (based on timestamp in session ID).
+// session ID per gateway (based on timestamp in session ID).
 func mergeLastSession(srcPath, dstPath string) error {
 	srcEntries, err := parseLastSession(srcPath)
 	if err != nil {
@@ -116,16 +116,16 @@ func mergeLastSession(srcPath, dstPath string) error {
 		return fmt.Errorf("failed to parse destination .last_session: %w", err)
 	}
 
-	// Merge: keep most recent session per interface
+	// Merge: keep most recent session per gateway
 	merged := make(map[string]string)
 	for k, v := range dstEntries {
 		merged[k] = v
 	}
 
-	for iface, srcSessionID := range srcEntries {
-		dstSessionID, exists := merged[iface]
+	for gateway, srcSessionID := range srcEntries {
+		dstSessionID, exists := merged[gateway]
 		if !exists || isMoreRecent(srcSessionID, dstSessionID) {
-			merged[iface] = srcSessionID
+			merged[gateway] = srcSessionID
 		}
 	}
 
@@ -133,7 +133,7 @@ func mergeLastSession(srcPath, dstPath string) error {
 	return writeLastSession(dstPath, merged)
 }
 
-// parseLastSession reads a .last_session file and returns interface->sessionID map.
+// parseLastSession reads a .last_session file and returns gateway->sessionID map.
 // Shares its line-parsing logic with JSONLStore.GetLast/SetLast (see parseLastSessionEntries
 // in jsonl.go).
 func parseLastSession(path string) (map[string]string, error) {
@@ -146,7 +146,7 @@ func parseLastSession(path string) (map[string]string, error) {
 	return parseLastSessionEntries(file)
 }
 
-// writeLastSession writes interface->sessionID map to .last_session file.
+// writeLastSession writes gateway->sessionID map to .last_session file.
 // Shares its line-writing logic with JSONLStore.SetLast (see writeLastSessionEntries
 // in jsonl.go).
 func writeLastSession(path string, entries map[string]string) error {
@@ -188,9 +188,9 @@ func parseSessionTimestamp(sessionID string) (time.Time, error) {
 // MigrateContact migrates a single contact's session folder if it exists as unlinked.
 // Called lazily on each message - fast path if no migration needed (single stat check).
 // Returns nil if no migration needed (already migrated or never existed).
-func MigrateContact(agentFolder, iface, platformID string) error {
+func MigrateContact(agentFolder, gateway, platformID string) error {
 	// Check if unlinked folder exists (fast path: single stat syscall)
-	unlinkedFolder := UnlinkedFolderName(iface, platformID)
+	unlinkedFolder := UnlinkedFolderName(gateway, platformID)
 	unlinkedPath := filepath.Join(agentFolder, sessionsDir, unlinkedFolder)
 
 	if _, err := os.Stat(unlinkedPath); os.IsNotExist(err) {
@@ -198,7 +198,7 @@ func MigrateContact(agentFolder, iface, platformID string) error {
 	}
 
 	// Find which identity owns this contact
-	userID, err := ResolveUser(agentFolder, iface, platformID)
+	userID, err := ResolveUser(agentFolder, gateway, platformID)
 	if err != nil {
 		return err
 	}

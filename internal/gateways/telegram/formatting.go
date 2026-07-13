@@ -4,7 +4,7 @@ import (
 	"html"
 	"regexp"
 
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways"
 )
 
 var (
@@ -24,24 +24,24 @@ func formatForTelegram(text string) string {
 	// Convert markdown to HTML (order matters: bold-italic first, then bold, then italic)
 
 	// ***bold-italic*** -> <b><i>text</i></b>
-	text = interfaces.ApplyBoldItalic(text, "<b><i>$1</i></b>")
+	text = gateways.ApplyBoldItalic(text, "<b><i>$1</i></b>")
 
 	// **bold** or __bold__ -> <b>bold</b>
-	text = interfaces.ApplyBold(text, "<b>$1</b>")
+	text = gateways.ApplyBold(text, "<b>$1</b>")
 
 	// *italic* or _italic_ -> <i>italic</i>
 	text = italicPattern1.ReplaceAllString(text, "$1<i>$2</i>$3")
 	text = italicPattern2.ReplaceAllString(text, "$1<i>$2</i>$3")
 
 	// ~~strikethrough~~ -> <s>strikethrough</s>
-	text = interfaces.ApplyStrike(text, "<s>$1</s>")
+	text = gateways.ApplyStrike(text, "<s>$1</s>")
 
 	// ```code block``` -> <pre>code</pre> (must run before single-backtick codePattern,
 	// otherwise codePattern consumes the triple backticks as adjacent single-backtick pairs)
-	text = interfaces.ApplyCodeBlock(text, "<pre>$1</pre>")
+	text = gateways.ApplyCodeBlock(text, "<pre>$1</pre>")
 
 	// `code` -> <code>code</code>
-	text = interfaces.ApplyCode(text, "<code>$1</code>")
+	text = gateways.ApplyCode(text, "<code>$1</code>")
 
 	return text
 }

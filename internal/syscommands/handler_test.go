@@ -55,7 +55,7 @@ max_messages = 10
 
 	// Injecting into it (e.g. a scheduled delivery arriving right after
 	// /new, before the user's first real message) must succeed.
-	if err := session.InjectTurn(store, "alice", sessionID, "assistant", "hello"); err != nil {
+	if err := session.InjectTurn(tmpDir, store, "alice", sessionID, "assistant", "hello"); err != nil {
 		t.Fatalf("InjectTurn failed on freshly-/new'd session: %v", err)
 	}
 }

@@ -4,7 +4,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways"
 )
 
 const (
@@ -44,23 +44,23 @@ func FormatForCLI(text string) string {
 	// Convert markdown to ANSI codes (order matters: bold-italic first, then bold, then italic)
 
 	// ***bold-italic*** -> bold+italic ANSI
-	text = interfaces.ApplyBoldItalic(text, ansiBold+ansiItalic+"$1"+ansiReset)
+	text = gateways.ApplyBoldItalic(text, ansiBold+ansiItalic+"$1"+ansiReset)
 
 	// **bold** or __bold__ -> bold ANSI
-	text = interfaces.ApplyBold(text, ansiBold+"$1"+ansiReset)
+	text = gateways.ApplyBold(text, ansiBold+"$1"+ansiReset)
 
 	// *italic* or _italic_ -> italic ANSI
 	text = italicPattern1.ReplaceAllString(text, ansiItalic+"$1"+ansiReset)
 	text = italicPattern2.ReplaceAllString(text, ansiItalic+"$1"+ansiReset)
 
 	// ~~strikethrough~~ -> strikethrough ANSI
-	text = interfaces.ApplyStrike(text, ansiStrikethrough+"$1"+ansiReset)
+	text = gateways.ApplyStrike(text, ansiStrikethrough+"$1"+ansiReset)
 
 	// `code` -> dim ANSI (inline code)
-	text = interfaces.ApplyCode(text, ansiDim+"$1"+ansiReset)
+	text = gateways.ApplyCode(text, ansiDim+"$1"+ansiReset)
 
 	// ```code block``` -> cyan ANSI (code block, more visible than dim)
-	text = interfaces.ApplyCodeBlock(text, ansiCyan+"$1"+ansiReset)
+	text = gateways.ApplyCodeBlock(text, ansiCyan+"$1"+ansiReset)
 
 	return text
 }

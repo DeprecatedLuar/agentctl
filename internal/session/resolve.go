@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// MintSession generates a new session ID, points userID+iface at it, and
+// MintSession generates a new session ID, points userID+gateway at it, and
 // creates its backing file so it's immediately writable/injectable even
 // before any turn has been saved to it.
-func MintSession(store SessionStore, userID, iface string) (string, error) {
+func MintSession(store SessionStore, userID, gateway string) (string, error) {
 	sessionID := NewSessionID()
-	if err := store.SetLast(userID, iface, sessionID); err != nil {
+	if err := store.SetLast(userID, gateway, sessionID); err != nil {
 		return "", fmt.Errorf("failed to set last session: %w", err)
 	}
 	if err := store.CreateSession(userID, sessionID); err != nil {
@@ -21,43 +21,43 @@ func MintSession(store SessionStore, userID, iface string) (string, error) {
 	return sessionID, nil
 }
 
-// Resolve is called by interfaces on every incoming message.
+// Resolve is called by gateways on every incoming message.
 // 1. Lazy migration: migrate this contact if they have an unlinked folder
 // 2. Calls ResolveUser to get userId
 // 3. Calls EnsureContact to log the contact
 // 4. Calls GetLast to find existing session or generates new SessionID
 // 5. Calls SetLast to persist
 // Returns ResolvedSession{UserID, SessionID}
-func Resolve(store SessionStore, agentFolder, iface, platformID, displayName, username string) (ResolvedSession, error) {
+func Resolve(store SessionStore, agentFolder, gateway, platformID, displayName, username string) (ResolvedSession, error) {
 	// Step 0: Lazy migration (best-effort, instant if no migration needed)
-	_ = MigrateContact(agentFolder, iface, platformID) // Ignore errors - migration is best-effort
+	_ = MigrateContact(agentFolder, gateway, platformID) // Ignore errors - migration is best-effort
 
 	// Step 1: Resolve user ID
-	userID, err := store.ResolveUser(iface, platformID)
+	userID, err := store.ResolveUser(gateway, platformID)
 	if err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to resolve user: %w", err)
 	}
 
 	// Step 2: Log contact
-	if err := store.EnsureContact(iface, platformID, displayName, username); err != nil {
+	if err := store.EnsureContact(gateway, platformID, displayName, username); err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to log contact: %w", err)
 	}
 
 	// Step 3: Get or create session ID
-	sessionID, err := store.GetLast(userID, iface)
+	sessionID, err := store.GetLast(userID, gateway)
 	if err != nil {
 		return ResolvedSession{}, fmt.Errorf("failed to get last session: %w", err)
 	}
 
 	if sessionID == "" {
 		// No existing session - mint one (also creates its backing file)
-		sessionID, err = MintSession(store, userID, iface)
+		sessionID, err = MintSession(store, userID, gateway)
 		if err != nil {
 			return ResolvedSession{}, err
 		}
 	} else {
 		// Step 4: Persist as last session
-		if err := store.SetLast(userID, iface, sessionID); err != nil {
+		if err := store.SetLast(userID, gateway, sessionID); err != nil {
 			return ResolvedSession{}, fmt.Errorf("failed to set last session: %w", err)
 		}
 	}
@@ -69,9 +69,9 @@ func Resolve(store SessionStore, agentFolder, iface, platformID, displayName, us
 }
 
 // ResolveExplicit is used by chat command when --user/--session flags are set.
-// If sessionID is empty, uses last session for that user+interface.
+// If sessionID is empty, uses last session for that user+gateway.
 // If userID is empty, scans all user folders to find which owns the sessionID.
-func ResolveExplicit(store SessionStore, agentFolder, userID, sessionID, iface string) (ResolvedSession, error) {
+func ResolveExplicit(store SessionStore, agentFolder, userID, sessionID, gateway string) (ResolvedSession, error) {
 	// Case 1: Both specified
 	if userID != "" && sessionID != "" {
 		return ResolvedSession{
@@ -82,14 +82,14 @@ func ResolveExplicit(store SessionStore, agentFolder, userID, sessionID, iface s
 
 	// Case 2: User specified, session empty - get last session
 	if userID != "" && sessionID == "" {
-		lastSessionID, err := store.GetLast(userID, iface)
+		lastSessionID, err := store.GetLast(userID, gateway)
 		if err != nil {
 			return ResolvedSession{}, fmt.Errorf("failed to get last session: %w", err)
 		}
 
 		if lastSessionID == "" {
 			// No existing session - mint one (also creates its backing file)
-			lastSessionID, err = MintSession(store, userID, iface)
+			lastSessionID, err = MintSession(store, userID, gateway)
 			if err != nil {
 				return ResolvedSession{}, err
 			}
@@ -149,34 +149,34 @@ func findSessionOwner(agentFolder, sessionID string) (string, error) {
 	return "", fmt.Errorf("session '%s' not found in any user folder", sessionID)
 }
 
-// ResolveChannel parses "user@interface" or "interface" (user inferred from currentUserID).
-// Returns userID, platformID, current sessionID for that user+interface.
+// ResolveChannel parses "user@gateway" or "gateway" (user inferred from currentUserID).
+// Returns userID, platformID, current sessionID for that user+gateway.
 // Creates new session if none exists (consistent with Resolve()).
 // currentUserID must be the already-resolved identity ID, not raw platform username.
 func ResolveChannel(store SessionStore, agentFolder, channelStr, currentUserID string) (userID, platformID, sessionID string, err error) {
 	// Parse channel string
-	var iface string
+	var gateway string
 	if strings.Contains(channelStr, "@") {
 		parts := strings.SplitN(channelStr, "@", 2)
 		if len(parts) != 2 {
-			return "", "", "", fmt.Errorf("invalid channel format (expected 'user@interface' or 'interface'): %s", channelStr)
+			return "", "", "", fmt.Errorf("invalid channel format (expected 'user@gateway' or 'gateway'): %s", channelStr)
 		}
 		userID = parts[0]
-		iface = parts[1]
+		gateway = parts[1]
 	} else {
-		// Bare interface - use current user
+		// Bare gateway - use current user
 		userID = currentUserID
-		iface = channelStr
+		gateway = channelStr
 	}
 
-	// Lookup platform ID for this user+interface
-	platformID, err = LookupPlatformID(agentFolder, userID, iface)
+	// Lookup platform ID for this user+gateway
+	platformID, err = LookupPlatformID(agentFolder, userID, gateway)
 	if err != nil {
-		return "", "", "", fmt.Errorf("failed to lookup platform ID for %s@%s: %w", userID, iface, err)
+		return "", "", "", fmt.Errorf("failed to lookup platform ID for %s@%s: %w", userID, gateway, err)
 	}
 
 	// Get current session (or create new one)
-	sessionID, err = store.GetLast(userID, iface)
+	sessionID, err = store.GetLast(userID, gateway)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to get last session: %w", err)
 	}
@@ -184,7 +184,7 @@ func ResolveChannel(store SessionStore, agentFolder, channelStr, currentUserID s
 	if sessionID == "" {
 		// No existing session - mint one (also creates its backing file,
 		// consistent with Resolve behavior)
-		sessionID, err = MintSession(store, userID, iface)
+		sessionID, err = MintSession(store, userID, gateway)
 		if err != nil {
 			return "", "", "", err
 		}
@@ -193,10 +193,10 @@ func ResolveChannel(store SessionStore, agentFolder, channelStr, currentUserID s
 	return userID, platformID, sessionID, nil
 }
 
-// LookupPlatformID performs reverse lookup from userID to platformID for the given interface.
-// Linear scan of identity's contacts slice — finds entry matching target interface, extracts platformID.
-// Returns error if userID not found in identities or no contact exists for that interface.
-func LookupPlatformID(agentFolder, userID, iface string) (string, error) {
+// LookupPlatformID performs reverse lookup from userID to platformID for the given gateway.
+// Linear scan of identity's contacts slice — finds entry matching target gateway, extracts platformID.
+// Returns error if userID not found in identities or no contact exists for that gateway.
+func LookupPlatformID(agentFolder, userID, gateway string) (string, error) {
 	// Load identities
 	identities, err := LoadIdentities(agentFolder)
 	if err != nil {
@@ -216,19 +216,19 @@ func LookupPlatformID(agentFolder, userID, iface string) (string, error) {
 		return "", fmt.Errorf("user '%s' not found in identities.toml", userID)
 	}
 
-	// Scan contacts for matching interface
+	// Scan contacts for matching gateway
 	for _, contact := range identity.Contacts {
-		contactIface, contactPlatformID, err := ParseContactKey(contact)
+		contactGateway, contactPlatformID, err := ParseContactKey(contact)
 		if err != nil {
 			// Skip malformed contacts
 			continue
 		}
 
-		if contactIface == iface {
+		if contactGateway == gateway {
 			// First match wins
 			return contactPlatformID, nil
 		}
 	}
 
-	return "", fmt.Errorf("no %s contact found for user '%s'", iface, userID)
+	return "", fmt.Errorf("no %s contact found for user '%s'", gateway, userID)
 }

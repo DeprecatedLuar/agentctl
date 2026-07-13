@@ -11,9 +11,6 @@ import (
 
 	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces/cli"
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces/telegram"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/registry"
@@ -29,9 +26,9 @@ const (
 	logsDir         = "logs"
 	lockFile        = "agent.lock"
 
-	// Interface names
-	interfaceCLI      = "cli"
-	interfaceTelegram = "telegram"
+	// Gateway names
+	gatewayCLI      = "cli"
+	gatewayTelegram = "telegram"
 
 	// Flags
 	flagLog     = "--log"
@@ -41,13 +38,17 @@ const (
 
 var (
 	// Default configuration values
-	defaultInterfaces = []string{interfaceCLI}
+	defaultGateways = []string{gatewayCLI}
 
 	// Shutdown signals
 	shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 )
 
-func HandleRun(args []string) error {
+// HandleServe starts the long-running daemon: daemon-hosted gateways
+// (telegram) and the routines scheduler. `serve` is the primary name;
+// `run`/`up` are kept as hidden aliases in main.go's dispatch, all calling
+// this same function.
+func HandleServe(args []string) error {
 	// Parse flags
 	var (
 		path    = "."
@@ -123,10 +124,10 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("failed to load agent configuration")
 	}
 
-	// Default interfaces to ["cli"] if not specified
-	interfacesList := agentCfg.Access.Interfaces
-	if len(interfacesList) == 0 {
-		interfacesList = defaultInterfaces
+	// Default gateways to ["cli"] if not specified
+	gatewayNames := agentCfg.Access.Gateways
+	if len(gatewayNames) == 0 {
+		gatewayNames = defaultGateways
 	}
 
 	// Setup logger
@@ -142,7 +143,7 @@ func HandleRun(args []string) error {
 	logger.PrintBox([]string{
 		fmt.Sprintf("agentctl · %s", filepath.Base(absPath)),
 		fmt.Sprintf("%s/%s", agentCfg.Agent.Provider, agentCfg.Agent.Model),
-		fmt.Sprintf("%d tools · %s", len(tools), strings.Join(interfacesList, ", ")),
+		fmt.Sprintf("%d tools · %s", len(tools), strings.Join(gatewayNames, ", ")),
 	})
 
 	// Route validation issues through the logger now that one exists, so
@@ -163,7 +164,7 @@ func HandleRun(args []string) error {
 	lg.Info("agent started",
 		"provider", agentCfg.Agent.Provider,
 		"model", agentCfg.Agent.Model,
-		"interfaces", agentCfg.Access.Interfaces,
+		"gateways", agentCfg.Access.Gateways,
 	)
 
 	// Ensure .data directory exists
@@ -171,7 +172,7 @@ func HandleRun(args []string) error {
 		return fmt.Errorf("create data directory: %w", err)
 	}
 
-	// Acquire an exclusive lock to prevent two `run` processes for the same
+	// Acquire an exclusive lock to prevent two `serve` processes for the same
 	// agent. The kernel releases this automatically on process exit (incl.
 	// crash/kill -9), so no manual cleanup is needed.
 	lockPath := filepath.Join(absPath, dataDir, lockFile)
@@ -217,20 +218,12 @@ func HandleRun(args []string) error {
 		lg.Info("audio transcriber initialized", "provider", agentCfg.Audio.Provider)
 	}
 
-	// Create session store
-	store := session.NewJSONLStore(absPath)
-
-	// Create orchestrator (orchestration layer)
-	orch := &internal.Orchestrator{
-		AgentFolder:  absPath,
-		SessionStore: store,
-		Logger:       lg,
-		Verbose:      verbose,
-		Debug:        debug,
+	// Build the store, Orchestrator, and OutboundDispatcher, and register a
+	// Sender for each requested gateway
+	assembled, err := assembleOrchestrator(absPath, transcriber, lg, verbose, debug, gatewayNames)
+	if err != nil {
+		return err
 	}
-
-	// Create outbound dispatcher
-	dispatcher := interfaces.NewOutboundDispatcher()
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -245,43 +238,20 @@ func HandleRun(args []string) error {
 		cancel()
 	}()
 
-	// Create and register interfaces
-	var interfaceInstances []internal.Interface
-	for _, iface := range interfacesList {
-		switch iface {
-		case interfaceCLI:
-			cliInterface := cli.NewCLI(absPath, orch, store, lg, verbose)
-			dispatcher.Register(cliInterface)
-			interfaceInstances = append(interfaceInstances, cliInterface)
-		case interfaceTelegram:
-			telegramInterface, err := telegram.NewTelegram(absPath, transcriber, orch, store, lg, verbose)
-			if err != nil {
-				return fmt.Errorf("failed to initialize telegram interface: %w", err)
-			}
-			dispatcher.Register(telegramInterface)
-			interfaceInstances = append(interfaceInstances, telegramInterface)
-		default:
-			return fmt.Errorf("unknown interface: %s", iface)
-		}
-	}
-
-	// Assign dispatcher to orchestrator
-	orch.Dispatcher = dispatcher
-
 	// Start the routines scheduler (no-op if routines/ doesn't exist or is
-	// empty). Runs for the lifetime of ctx, same as the interface goroutines
+	// empty). Runs for the lifetime of ctx, same as the gateway goroutines
 	// below.
 	routines.Start(ctx, absPath, agentCfg.Environment, lg, debug)
 
-	// Start interfaces
-	errChan := make(chan error, len(interfaceInstances))
-	for i, iface := range interfaceInstances {
-		ifaceName := interfacesList[i]
-		go func(ifaceName string, iface internal.Interface) {
-			if err := iface.Start(ctx); err != nil {
-				errChan <- fmt.Errorf("%s interface error: %w", ifaceName, err)
+	// Start gateways
+	errChan := make(chan error, len(assembled.Gateways))
+	for i, gw := range assembled.Gateways {
+		gwName := assembled.GatewayNames[i]
+		go func(gwName string, gw internal.Gateway) {
+			if err := gw.Start(ctx); err != nil {
+				errChan <- fmt.Errorf("%s gateway error: %w", gwName, err)
 			}
-		}(ifaceName, iface)
+		}(gwName, gw)
 	}
 
 	// Wait for shutdown or error

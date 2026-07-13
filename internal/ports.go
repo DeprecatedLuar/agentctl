@@ -3,13 +3,13 @@ package internal
 import (
 	"context"
 
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways"
 )
 
 // MessageOptions contains all parameters for message handling including delivery options
 type MessageOptions struct {
 	// Basic message info
-	Interface   string
+	Gateway     string
 	ContactID   string
 	DisplayName string
 	Username    string // Optional: @handle (e.g., Telegram @username)
@@ -29,28 +29,28 @@ type MessageOptions struct {
 }
 
 // MessageHandler processes incoming messages and returns responses
-// Implemented by the orchestration layer, injected into interfaces
+// Implemented by the orchestration layer, injected into gateways
 type MessageHandler interface {
 	// HandleMessage processes a message with automatic contact resolution
-	HandleMessage(iface, contactID, displayName, username, content string) (string, error)
+	HandleMessage(gateway, contactID, displayName, username, content string) (string, error)
 
 	// HandleExplicitMessage processes a message with explicit user/session IDs
-	// Used only by CLI interface for --user/--session flags (bypasses contact resolution)
-	HandleExplicitMessage(userID, sessionID, iface, content string) (string, error)
+	// Used only by CLI gateway for --user/--session flags (bypasses contact resolution)
+	HandleExplicitMessage(userID, sessionID, gateway, content string) (string, error)
 
 	// HandleMessageWithOptions processes a message with full delivery options
 	// Used when channel delivery or tool whitelisting is needed
 	HandleMessageWithOptions(opts MessageOptions) (string, error)
 }
 
-// OutboundDispatcher handles cross-interface message delivery
+// OutboundDispatcher handles cross-gateway message delivery
 type OutboundDispatcher interface {
-	Send(iface, platformID, content string) error
-	Register(sender interfaces.Sender)
+	Send(gateway, platformID, content string) error
+	Register(sender gateways.Sender)
 }
 
-// Interface defines the contract for agent interfaces (CLI, Telegram, etc.)
-// Interfaces handle I/O only - receiving input and delivering output
-type Interface interface {
+// Gateway defines the contract for agent gateways (CLI, Telegram, etc.)
+// Gateways handle I/O only - receiving input and delivering output
+type Gateway interface {
 	Start(ctx context.Context) error
 }

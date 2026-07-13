@@ -26,8 +26,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-	case "run":
-		if err := commands.HandleRun(args); err != nil {
+	case "serve", "run", "up":
+		// `serve` is the primary name; `run`/`up` are hidden aliases kept
+		// for backward compatibility and muscle memory.
+		if err := commands.HandleServe(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -63,6 +65,11 @@ func main() {
 		}
 	case "deliver":
 		if err := commands.HandleDeliver(args); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "monitor":
+		if err := commands.HandleMonitor(args); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}

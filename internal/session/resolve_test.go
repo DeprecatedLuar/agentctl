@@ -168,7 +168,7 @@ func TestMintSession(t *testing.T) {
 	// InjectTurn must succeed with no prior Save - this is the exact
 	// failure mode from the live bug (turn silently lost because the
 	// session file didn't exist yet).
-	if err := InjectTurn(store, "alice", sessionID, "assistant", "hello"); err != nil {
+	if err := InjectTurn(tmpDir, store, "alice", sessionID, "assistant", "hello"); err != nil {
 		t.Fatalf("InjectTurn failed on freshly minted session: %v", err)
 	}
 
@@ -212,7 +212,7 @@ contacts = ["cli:bob", "telegram:987654321"]
 	}
 
 	// InjectTurn must succeed immediately, matching real deliverToChannels usage.
-	if err := InjectTurn(store, userID, sessionID, "assistant", "reminder"); err != nil {
+	if err := InjectTurn(tmpDir, store, userID, sessionID, "assistant", "reminder"); err != nil {
 		t.Fatalf("InjectTurn failed on cold-start resolved session: %v", err)
 	}
 }
@@ -243,42 +243,42 @@ contacts = ["cli:bob"]
 	tests := []struct {
 		name           string
 		userID         string
-		iface          string
+		gateway        string
 		wantPlatformID string
 		wantError      bool
 	}{
 		{
 			name:           "alice telegram - first match wins",
 			userID:         "alice",
-			iface:          "telegram",
+			gateway:        "telegram",
 			wantPlatformID: "123456789",
 			wantError:      false,
 		},
 		{
 			name:           "alice cli",
 			userID:         "alice",
-			iface:          "cli",
+			gateway:        "cli",
 			wantPlatformID: "alice",
 			wantError:      false,
 		},
 		{
 			name:           "bob cli",
 			userID:         "bob",
-			iface:          "cli",
+			gateway:        "cli",
 			wantPlatformID: "bob",
 			wantError:      false,
 		},
 		{
 			name:           "bob telegram - not found",
 			userID:         "bob",
-			iface:          "telegram",
+			gateway:        "telegram",
 			wantPlatformID: "",
 			wantError:      true,
 		},
 		{
 			name:           "charlie - user not found",
 			userID:         "charlie",
-			iface:          "cli",
+			gateway:        "cli",
 			wantPlatformID: "",
 			wantError:      true,
 		},
@@ -286,7 +286,7 @@ contacts = ["cli:bob"]
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			platformID, err := LookupPlatformID(tmpDir, tt.userID, tt.iface)
+			platformID, err := LookupPlatformID(tmpDir, tt.userID, tt.gateway)
 
 			if tt.wantError {
 				if err == nil {

@@ -15,7 +15,7 @@ func HandleHelp(args []string) error {
 		ConfigPage(),
 		ToolsPage(),
 		PromptPage(),
-		InterfacesPage(),
+		GatewaysPage(),
 		SessionsPage(),
 		PrerunPage(),
 	)

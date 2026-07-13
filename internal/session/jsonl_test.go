@@ -102,7 +102,7 @@ func TestJSONLStore_GetSetMeta(t *testing.T) {
 
 	// Update metadata
 	meta.Title = "Test Session"
-	meta.Interface = "cli"
+	meta.Gateway = "cli"
 
 	if err := store.SetMeta(userID, sessionID, meta); err != nil {
 		t.Fatalf("SetMeta failed: %v", err)
@@ -118,8 +118,8 @@ func TestJSONLStore_GetSetMeta(t *testing.T) {
 		t.Errorf("Title not updated: %s", updatedMeta.Title)
 	}
 
-	if updatedMeta.Interface != "cli" {
-		t.Errorf("Interface not updated: %s", updatedMeta.Interface)
+	if updatedMeta.Gateway != "cli" {
+		t.Errorf("Gateway not updated: %s", updatedMeta.Gateway)
 	}
 
 	// Verify messages still intact after SetMeta
@@ -179,10 +179,10 @@ func TestJSONLStore_GetSetLast(t *testing.T) {
 	store := NewJSONLStore(tmpDir)
 
 	userID := "alice"
-	iface := "cli"
+	gateway := "cli"
 
 	// Initially empty
-	last, err := store.GetLast(userID, iface)
+	last, err := store.GetLast(userID, gateway)
 	if err != nil {
 		t.Fatalf("GetLast failed: %v", err)
 	}
@@ -192,12 +192,12 @@ func TestJSONLStore_GetSetLast(t *testing.T) {
 
 	// Set last session
 	sessionID := "20260615_120000_abc123"
-	if err := store.SetLast(userID, iface, sessionID); err != nil {
+	if err := store.SetLast(userID, gateway, sessionID); err != nil {
 		t.Fatalf("SetLast failed: %v", err)
 	}
 
 	// Retrieve last session
-	last, err = store.GetLast(userID, iface)
+	last, err = store.GetLast(userID, gateway)
 	if err != nil {
 		t.Fatalf("GetLast after SetLast failed: %v", err)
 	}
@@ -207,11 +207,11 @@ func TestJSONLStore_GetSetLast(t *testing.T) {
 
 	// Update to new session
 	newSessionID := "20260615_130000_def456"
-	if err := store.SetLast(userID, iface, newSessionID); err != nil {
+	if err := store.SetLast(userID, gateway, newSessionID); err != nil {
 		t.Fatalf("SetLast update failed: %v", err)
 	}
 
-	last, err = store.GetLast(userID, iface)
+	last, err = store.GetLast(userID, gateway)
 	if err != nil {
 		t.Fatalf("GetLast after update failed: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestJSONLStore_SetLastAtomic(t *testing.T) {
 
 	userID := "alice"
 
-	// Set multiple interfaces
+	// Set multiple gateways
 	if err := store.SetLast(userID, "cli", "session1"); err != nil {
 		t.Fatalf("SetLast failed: %v", err)
 	}
@@ -234,12 +234,12 @@ func TestJSONLStore_SetLastAtomic(t *testing.T) {
 		t.Fatalf("SetLast failed: %v", err)
 	}
 
-	// Update one interface
+	// Update one gateway
 	if err := store.SetLast(userID, "cli", "session3"); err != nil {
 		t.Fatalf("SetLast update failed: %v", err)
 	}
 
-	// Verify both interfaces preserved
+	// Verify both gateways preserved
 	cliLast, _ := store.GetLast(userID, "cli")
 	if cliLast != "session3" {
 		t.Errorf("CLI last session should be session3, got: %s", cliLast)

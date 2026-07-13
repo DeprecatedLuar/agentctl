@@ -11,28 +11,28 @@ func TestFormatForCLI(t *testing.T) {
 		contains []string // Check for ANSI codes or plain text
 	}{
 		{
-			name:  "bold text",
-			input: "This is **bold** text",
+			name:     "bold text",
+			input:    "This is **bold** text",
 			contains: []string{"bold"}, // Will have ANSI codes in TTY
 		},
 		{
-			name:  "italic text",
-			input: "This is *italic* text",
+			name:     "italic text",
+			input:    "This is *italic* text",
 			contains: []string{"italic"},
 		},
 		{
-			name:  "inline code",
-			input: "Use `code` here",
+			name:     "inline code",
+			input:    "Use `code` here",
 			contains: []string{"code"},
 		},
 		{
-			name:  "mixed formatting",
-			input: "Use **bold** with `code` examples",
+			name:     "mixed formatting",
+			input:    "Use **bold** with `code` examples",
 			contains: []string{"bold", "code", "examples"},
 		},
 		{
-			name:  "plain text unchanged",
-			input: "Plain text without formatting",
+			name:     "plain text unchanged",
+			input:    "Plain text without formatting",
 			contains: []string{"Plain text without formatting"},
 		},
 	}

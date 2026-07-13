@@ -20,9 +20,9 @@ const (
 	providerOpenAI     = "openai"
 	providerOpenRouter = "openrouter"
 
-	// Valid interface names
-	interfaceCLI      = "cli"
-	interfaceTelegram = "telegram"
+	// Valid gateway names
+	gatewayCLI      = "cli"
+	gatewayTelegram = "telegram"
 
 	// API key environment variables
 	envOpenAI     = "OPENAI_API_KEY"
@@ -71,6 +71,24 @@ type AgentSection struct {
 	Logging  interface{} `toml:"logging"` // false | true | "debug"
 }
 
+// Overrides holds per-call config overrides (flag/env driven), applied on
+// top of a freshly loaded AgentConfig so they survive hot-reload without
+// being persisted to agent.toml.
+type Overrides struct {
+	Model    string
+	Provider string
+}
+
+// Apply overwrites cfg's model/provider with any non-empty override values.
+func (o Overrides) Apply(cfg *AgentConfig) {
+	if o.Model != "" {
+		cfg.Agent.Model = o.Model
+	}
+	if o.Provider != "" {
+		cfg.Agent.Provider = o.Provider
+	}
+}
+
 type MemoryConfig struct {
 	MaxMessages int `toml:"max_messages"`
 }
@@ -87,8 +105,11 @@ type AudioConfig struct {
 }
 
 type AccessConfig struct {
-	AllowByDefault bool     `toml:"allow_by_default"` // Default access policy for new contacts
-	Interfaces     []string `toml:"interfaces"`
+	AllowByDefault bool `toml:"allow_by_default"` // Default access policy for new contacts
+	// Gateways lists daemon-hosted gateways (cli is a valid access identity
+	// but never a daemon-hosted gateway - see assembleOrchestrator). FROZEN
+	// on-disk key: every existing agent.toml still says `interfaces = [...]`.
+	Gateways []string `toml:"interfaces"`
 }
 
 // LoggingEnabled returns true if file logging is enabled (any value except false)
@@ -169,12 +190,12 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 		})
 	}
 
-	// Validate interfaces
-	for _, iface := range cfg.Access.Interfaces {
-		if iface != interfaceCLI && iface != interfaceTelegram {
+	// Validate gateways
+	for _, gateway := range cfg.Access.Gateways {
+		if gateway != gatewayCLI && gateway != gatewayTelegram {
 			issues = append(issues, ValidationIssue{
 				Type:    IssueError,
-				Message: fmt.Sprintf("%s: invalid interface '%s' (valid: cli, telegram)", agentConfigFile, iface),
+				Message: fmt.Sprintf("%s: invalid gateway '%s' (valid: cli, telegram)", agentConfigFile, gateway),
 			})
 		}
 	}
@@ -204,9 +225,9 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 	}
 	// HTTP endpoints: skip validation (unknown auth requirements)
 
-	// Check Telegram bot token if telegram interface is enabled
-	for _, iface := range cfg.Access.Interfaces {
-		if iface == interfaceTelegram {
+	// Check Telegram bot token if the telegram gateway is enabled
+	for _, gateway := range cfg.Access.Gateways {
+		if gateway == gatewayTelegram {
 			if os.Getenv(envTelegram) == "" {
 				issues = append(issues, ValidationIssue{
 					Type:    IssueError,

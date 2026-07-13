@@ -12,8 +12,10 @@ type SessionMeta struct {
 	SessionID string `json:"session_id"` // Session identifier (populated by ListSessions from filename)
 	Title     string `json:"title"`
 	CreatedAt int64  `json:"created_at"`
-	Interface string `json:"interface"`
-	UserID    string `json:"user_id"`
+	// Gateway is FROZEN on-disk as "interface" (json tag) - every existing
+	// session file already has this key; only the Go identifier changed.
+	Gateway string `json:"interface"`
+	UserID  string `json:"user_id"`
 }
 
 // NeedsTitle reports whether this session still requires a title to be
@@ -38,20 +40,20 @@ type SessionStore interface {
 	// SetMeta updates session metadata (atomic write)
 	SetMeta(userID, sessionID string, meta SessionMeta) error
 
-	// GetLast returns the last session ID for this user+interface
-	GetLast(userID, iface string) (string, error)
+	// GetLast returns the last session ID for this user+gateway
+	GetLast(userID, gateway string) (string, error)
 
-	// SetLast updates the last session ID for this user+interface (atomic write)
-	SetLast(userID, iface, sessionID string) error
+	// SetLast updates the last session ID for this user+gateway (atomic write)
+	SetLast(userID, gateway, sessionID string) error
 
 	// ListSessions returns all session metadata for a user
 	ListSessions(userID string) ([]SessionMeta, error)
 
 	// EnsureContact logs a contact if not already present
-	EnsureContact(iface, platformID, displayName, username string) error
+	EnsureContact(gateway, platformID, displayName, username string) error
 
-	// ResolveUser returns userID for a given interface+platformID
-	ResolveUser(iface, platformID string) (string, error)
+	// ResolveUser returns userID for a given gateway+platformID
+	ResolveUser(gateway, platformID string) (string, error)
 
 	// SessionExists checks if a session file exists
 	SessionExists(userID, sessionID string) bool

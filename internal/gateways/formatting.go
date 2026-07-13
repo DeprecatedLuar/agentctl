@@ -1,4 +1,4 @@
-package interfaces
+package gateways
 
 import (
 	"fmt"
@@ -11,16 +11,16 @@ import (
 
 // Shared markdown regex patterns used by both cli and telegram formatting.
 // Only patterns whose structure (capture groups) is identical across
-// interfaces live here - italic patterns differ per interface (capturing
+// gateways live here - italic patterns differ per gateway (capturing
 // vs non-capturing groups) and stay in each package's own formatting.go.
 var (
-	MarkdownBoldItalicPattern1 = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)        // ***text***
-	MarkdownBoldItalicPattern2 = regexp.MustCompile(`__\*(.+?)\*__`)            // __*text*__
-	MarkdownBoldItalicPattern3 = regexp.MustCompile(`\*\*_(.+?)_\*\*`)          // **_text_**
-	MarkdownBoldPattern1       = regexp.MustCompile(`\*\*(.+?)\*\*`)            // **text**
-	MarkdownBoldPattern2       = regexp.MustCompile(`__(.+?)__`)                // __text__
-	MarkdownStrikePattern      = regexp.MustCompile(`~~(.+?)~~`)                // ~~strike~~
-	MarkdownCodePattern        = regexp.MustCompile("`(.+?)`")                  // `code`
+	MarkdownBoldItalicPattern1 = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)         // ***text***
+	MarkdownBoldItalicPattern2 = regexp.MustCompile(`__\*(.+?)\*__`)             // __*text*__
+	MarkdownBoldItalicPattern3 = regexp.MustCompile(`\*\*_(.+?)_\*\*`)           // **_text_**
+	MarkdownBoldPattern1       = regexp.MustCompile(`\*\*(.+?)\*\*`)             // **text**
+	MarkdownBoldPattern2       = regexp.MustCompile(`__(.+?)__`)                 // __text__
+	MarkdownStrikePattern      = regexp.MustCompile(`~~(.+?)~~`)                 // ~~strike~~
+	MarkdownCodePattern        = regexp.MustCompile("`(.+?)`")                   // `code`
 	MarkdownCodeBlockPattern   = regexp.MustCompile("```(?:\n)?(.+?)(?:\n)?```") // ```code```
 )
 

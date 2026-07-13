@@ -87,7 +87,7 @@ func HandleInject(args []string) error {
 	}
 
 	// Inject turn
-	if err := session.InjectTurn(store, resolved.UserID, resolved.SessionID, role, content); err != nil {
+	if err := session.InjectTurn(absPath, store, resolved.UserID, resolved.SessionID, role, content); err != nil {
 		return err
 	}
 

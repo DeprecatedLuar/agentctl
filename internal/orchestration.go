@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/DeprecatedLuar/agentctl/internal/agent"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
@@ -17,19 +18,36 @@ import (
 type Orchestrator struct {
 	AgentFolder  string
 	SessionStore session.SessionStore
-	Dispatcher   OutboundDispatcher // For cross-interface message delivery
+	Dispatcher   OutboundDispatcher // For cross-gateway message delivery
 	Logger       *slog.Logger
 	Verbose      bool
 	Debug        bool
-	queues       queue.Registry // per-session message queues, keyed by userID+sessionID
+	Overrides    config.Overrides // Applied on top of agent.toml after every load; survives hot-reload
+	queues       queue.Registry   // per-session message queues, keyed by userID+sessionID
+	titleWG      sync.WaitGroup   // tracks in-flight async title generation
+}
+
+// Wait blocks until any in-flight async title generation completes. One-shot
+// callers (chat/deliver) must call this before exiting, since the process
+// would otherwise end before the background goroutine finishes; `serve`
+// doesn't need it (the daemon keeps running).
+func (o *Orchestrator) Wait() {
+	o.titleWG.Wait()
 }
 
 // enqueue serializes content through the per-session queue for
 // (userID, sessionID), creating the queue on first use, and blocks until the
-// resulting turn has been processed.
-func (o *Orchestrator) enqueue(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
+// resulting turn has been processed. The in-process queue already serializes
+// same-process callers; LockSession extends that guarantee across processes
+// (e.g. a `serve` daemon and a one-shot `chat` hitting the same session).
+func (o *Orchestrator) enqueue(userID, sessionID, gateway, content string, toolWhitelist []string) (string, error) {
 	sq := o.queues.GetOrCreate(userID, sessionID, func(c string) (string, error) {
-		return o.handleMessage(userID, sessionID, iface, c, toolWhitelist)
+		unlock, err := session.LockSession(o.AgentFolder, userID, sessionID, o.Logger)
+		if err != nil {
+			return "", fmt.Errorf("failed to lock session: %w", err)
+		}
+		defer unlock()
+		return o.handleMessage(userID, sessionID, gateway, c, toolWhitelist)
 	})
 	return sq.Enqueue(content)
 }
@@ -42,51 +60,51 @@ func (o *Orchestrator) enqueue(userID, sessionID, iface, content string, toolWhi
 // - Calls agent
 // - Saves messages
 // - Triggers title generation (async, first turn only)
-func (o *Orchestrator) HandleMessage(iface, contactID, displayName, username, content string) (string, error) {
+func (o *Orchestrator) HandleMessage(gateway, contactID, displayName, username, content string) (string, error) {
 	// Resolve session from contact ID
-	resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, iface, contactID, displayName, username)
+	resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, gateway, contactID, displayName, username)
 	if err != nil {
 		o.Logger.Error("session resolution failed", "contact", contactID, "error", err)
 		return "", fmt.Errorf("session resolution failed: %w", err)
 	}
 
 	// Check access control
-	allowed, err := session.CheckAccess(o.AgentFolder, iface, contactID)
+	allowed, err := session.CheckAccess(o.AgentFolder, gateway, contactID)
 	if err != nil {
 		o.Logger.Error("access check failed", "contact", contactID, "error", err)
 		return "", fmt.Errorf("access check failed: %w", err)
 	}
 	if !allowed {
-		o.Logger.Warn("access denied", "contact", contactID, "interface", iface)
+		o.Logger.Warn("access denied", "contact", contactID, "gateway", gateway)
 		return "", fmt.Errorf("access denied")
 	}
 
-	return o.enqueue(resolved.UserID, resolved.SessionID, iface, content, nil)
+	return o.enqueue(resolved.UserID, resolved.SessionID, gateway, content, nil)
 }
 
 // HandleExplicitMessage implements the MessageHandler interface for explicit resolution
-// Used by CLI interface when --user/--session flags are provided
+// Used by the CLI gateway when --user/--session flags are provided
 // Bypasses contact resolution and uses provided IDs directly
-func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content string) (string, error) {
+func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, gateway, content string) (string, error) {
 	// Reverse lookup platformID for access check
-	platformID, err := session.LookupPlatformID(o.AgentFolder, userID, iface)
+	platformID, err := session.LookupPlatformID(o.AgentFolder, userID, gateway)
 	if err != nil {
-		o.Logger.Error("platform lookup failed", "user", userID, "interface", iface, "error", err)
+		o.Logger.Error("platform lookup failed", "user", userID, "gateway", gateway, "error", err)
 		return "", fmt.Errorf("platform lookup failed: %w", err)
 	}
 
 	// Check access control
-	allowed, err := session.CheckAccess(o.AgentFolder, iface, platformID)
+	allowed, err := session.CheckAccess(o.AgentFolder, gateway, platformID)
 	if err != nil {
 		o.Logger.Error("access check failed", "user", userID, "error", err)
 		return "", fmt.Errorf("access check failed: %w", err)
 	}
 	if !allowed {
-		o.Logger.Warn("access denied", "user", userID, "interface", iface)
+		o.Logger.Warn("access denied", "user", userID, "gateway", gateway)
 		return "", fmt.Errorf("access denied")
 	}
 
-	return o.enqueue(userID, sessionID, iface, content, nil)
+	return o.enqueue(userID, sessionID, gateway, content, nil)
 }
 
 // handleMessage contains the core message handling logic, shared by every
@@ -94,11 +112,11 @@ func (o *Orchestrator) HandleExplicitMessage(userID, sessionID, iface, content s
 // hooks -> resolve config/tools/prompt -> load history -> agent.Run -> save.
 // toolWhitelist filters loaded tools down to the given names when non-empty;
 // nil or empty applies no filtering.
-func (o *Orchestrator) handleMessage(userID, sessionID, iface, content string, toolWhitelist []string) (string, error) {
+func (o *Orchestrator) handleMessage(userID, sessionID, gateway, content string, toolWhitelist []string) (string, error) {
 
 	// Execute prerun hook before config load. Model/provider aren't known yet
 	// (config hasn't loaded), so the context passed here leaves them empty.
-	prerunCtx := resolution.NewContext(o.AgentFolder, userID, "", sessionID, iface, "", "", nil)
+	prerunCtx := resolution.NewContext(o.AgentFolder, userID, "", sessionID, gateway, "", "", nil)
 	if err := hooks.ExecutePrerun(o.AgentFolder, nil, resolution.SystemEnv(prerunCtx), o.Logger); err != nil {
 		// Non-fatal, but log if something catastrophic happened
 		o.Logger.Error("prerun hook error", "error", err)
@@ -111,6 +129,7 @@ func (o *Orchestrator) handleMessage(userID, sessionID, iface, content string, t
 		o.Logger.Error("failed to load agent config", "error", err)
 		return "", err
 	}
+	o.Overrides.Apply(agentCfg)
 
 	tools, toolIssues := config.LoadTools(o.AgentFolder, agentCfg.Agent.Tools)
 	ctx := resolution.NewContext(
@@ -118,7 +137,7 @@ func (o *Orchestrator) handleMessage(userID, sessionID, iface, content string, t
 		userID,
 		"", // username not available at this layer
 		sessionID,
-		iface,
+		gateway,
 		agentCfg.Agent.Model,
 		agentCfg.Agent.Provider,
 		agentCfg.Environment,
@@ -156,7 +175,7 @@ func (o *Orchestrator) handleMessage(userID, sessionID, iface, content string, t
 	input := agent.Input{
 		UserID:    userID,
 		SessionID: sessionID,
-		Interface: iface,
+		Gateway:   gateway,
 		Content:   content,
 	}
 
@@ -220,13 +239,17 @@ func (o *Orchestrator) saveAndMaybeTitle(agentCfg *config.AgentConfig, userID, s
 		o.Logger.Error("failed to save assistant message", "session", sessionID, "error", err)
 	}
 
-	// Auto-generate title after first real exchange (async, non-blocking)
+	// Auto-generate title after first real exchange (async, non-blocking).
+	// Tracked via titleWG so one-shot callers can drain it with Wait()
+	// before the process exits.
 	if needsTitle {
 		if o.Debug {
 			o.Logger.Debug("launching title generation", "session", sessionID)
 		}
 		// Pass messages directly to avoid race condition with file I/O
-		go o.generateTitle(agentCfg, userID, sessionID, content, response)
+		o.titleWG.Go(func() {
+			o.generateTitle(agentCfg, userID, sessionID, content, response)
+		})
 	}
 }
 
@@ -251,7 +274,7 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 	// Determine resolution strategy
 	if opts.UserID != "" || opts.SessionID != "" {
 		// Explicit resolution (like HandleExplicitMessage)
-		resolved, err := session.ResolveExplicit(o.SessionStore, o.AgentFolder, opts.UserID, opts.SessionID, opts.Interface)
+		resolved, err := session.ResolveExplicit(o.SessionStore, o.AgentFolder, opts.UserID, opts.SessionID, opts.Gateway)
 		if err != nil {
 			o.Logger.Error("explicit session resolution failed", "user", opts.UserID, "session", opts.SessionID, "error", err)
 			return "", fmt.Errorf("session resolution failed: %w", err)
@@ -260,25 +283,25 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 		sessionID = resolved.SessionID
 
 		// Reverse lookup platformID for access check
-		platformID, err := session.LookupPlatformID(o.AgentFolder, userID, opts.Interface)
+		platformID, err := session.LookupPlatformID(o.AgentFolder, userID, opts.Gateway)
 		if err != nil {
-			o.Logger.Error("platform lookup failed", "user", userID, "interface", opts.Interface, "error", err)
+			o.Logger.Error("platform lookup failed", "user", userID, "gateway", opts.Gateway, "error", err)
 			return "", fmt.Errorf("platform lookup failed: %w", err)
 		}
 
 		// Check access control
-		allowed, err := session.CheckAccess(o.AgentFolder, opts.Interface, platformID)
+		allowed, err := session.CheckAccess(o.AgentFolder, opts.Gateway, platformID)
 		if err != nil {
 			o.Logger.Error("access check failed", "user", userID, "error", err)
 			return "", fmt.Errorf("access check failed: %w", err)
 		}
 		if !allowed {
-			o.Logger.Warn("access denied", "user", userID, "interface", opts.Interface)
+			o.Logger.Warn("access denied", "user", userID, "gateway", opts.Gateway)
 			return "", fmt.Errorf("access denied")
 		}
 	} else {
 		// Auto resolution (like HandleMessage)
-		resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, opts.Interface, opts.ContactID, opts.DisplayName, opts.Username)
+		resolved, err := session.Resolve(o.SessionStore, o.AgentFolder, opts.Gateway, opts.ContactID, opts.DisplayName, opts.Username)
 		if err != nil {
 			o.Logger.Error("session resolution failed", "contact", opts.ContactID, "error", err)
 			return "", fmt.Errorf("session resolution failed: %w", err)
@@ -287,13 +310,13 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 		sessionID = resolved.SessionID
 
 		// Check access control
-		allowed, err := session.CheckAccess(o.AgentFolder, opts.Interface, opts.ContactID)
+		allowed, err := session.CheckAccess(o.AgentFolder, opts.Gateway, opts.ContactID)
 		if err != nil {
 			o.Logger.Error("access check failed", "contact", opts.ContactID, "error", err)
 			return "", fmt.Errorf("access check failed: %w", err)
 		}
 		if !allowed {
-			o.Logger.Warn("access denied", "contact", opts.ContactID, "interface", opts.Interface)
+			o.Logger.Warn("access denied", "contact", opts.ContactID, "gateway", opts.Gateway)
 			return "", fmt.Errorf("access denied")
 		}
 	}
@@ -303,7 +326,7 @@ func (o *Orchestrator) HandleMessageWithOptions(opts MessageOptions) (string, er
 	if opts.Raw {
 		response = opts.Content
 	} else {
-		response, err = o.enqueue(userID, sessionID, opts.Interface, opts.Content, opts.Tools)
+		response, err = o.enqueue(userID, sessionID, opts.Gateway, opts.Content, opts.Tools)
 		if err != nil {
 			return "", err
 		}
@@ -339,14 +362,14 @@ func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string
 			continue
 		}
 
-		// Extract interface from channel string
-		iface := channelStr
+		// Extract gateway name from channel string
+		gateway := channelStr
 		if strings.Contains(channelStr, "@") {
 			parts := strings.SplitN(channelStr, "@", 2)
-			iface = parts[1]
+			gateway = parts[1]
 		}
 
-		if err := o.Dispatcher.Send(iface, platformID, response); err != nil {
+		if err := o.Dispatcher.Send(gateway, platformID, response); err != nil {
 			o.Logger.Warn("failed to deliver to channel", "channel", channelStr, "error", err)
 			continue // Don't inject if delivery failed
 		}
@@ -356,11 +379,11 @@ func (o *Orchestrator) deliverToChannels(currentUserID string, channels []string
 
 		if inject {
 			if note != "" {
-				if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, "system", note); err != nil {
+				if err := session.InjectTurn(o.AgentFolder, o.SessionStore, userID, targetSessionID, "system", note); err != nil {
 					o.Logger.Warn("failed to inject system note", "channel", channelStr, "session", targetSessionID, "error", err)
 				}
 			}
-			if err := session.InjectTurn(o.SessionStore, userID, targetSessionID, role, response); err != nil {
+			if err := session.InjectTurn(o.AgentFolder, o.SessionStore, userID, targetSessionID, role, response); err != nil {
 				o.Logger.Warn("failed to inject turn", "channel", channelStr, "session", targetSessionID, "error", err)
 			} else if o.Debug {
 				o.Logger.Debug("injected", "channel", channelStr, "user", userID, "session", targetSessionID)

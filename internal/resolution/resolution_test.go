@@ -14,7 +14,7 @@ func TestBuildSystemVariables(t *testing.T) {
 		UserID:    "alice",
 		Username:  "Alice Smith",
 		SessionID: "20260624_153045_abc123",
-		Interface: "cli",
+		Gateway:   "cli",
 		Model:     "gpt-4o",
 		Provider:  "openai",
 		Timestamp: time.Date(2026, 6, 24, 15, 30, 45, 0, time.UTC),
@@ -35,8 +35,11 @@ func TestBuildSystemVariables(t *testing.T) {
 	if vars["$session"] != "20260624_153045_abc123" {
 		t.Errorf("$session = %q, want %q", vars["$session"], "20260624_153045_abc123")
 	}
+	if vars["$gateway"] != "cli" {
+		t.Errorf("$gateway = %q, want %q", vars["$gateway"], "cli")
+	}
 	if vars["$interface"] != "cli" {
-		t.Errorf("$interface = %q, want %q", vars["$interface"], "cli")
+		t.Errorf("$interface (deprecated alias) = %q, want %q", vars["$interface"], "cli")
 	}
 	if vars["$model"] != "gpt-4o" {
 		t.Errorf("$model = %q, want %q", vars["$model"], "gpt-4o")
@@ -77,8 +80,11 @@ func TestBuildSystemVariables_EmptyContext(t *testing.T) {
 	if _, exists := vars["$session"]; !exists {
 		t.Error("$session key missing")
 	}
+	if _, exists := vars["$gateway"]; !exists {
+		t.Error("$gateway key missing")
+	}
 	if _, exists := vars["$interface"]; !exists {
-		t.Error("$interface key missing")
+		t.Error("$interface (deprecated alias) key missing")
 	}
 	if _, exists := vars["$timestamp"]; !exists {
 		t.Error("$timestamp key missing")

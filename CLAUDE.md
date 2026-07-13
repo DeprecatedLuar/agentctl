@@ -11,7 +11,7 @@ go test ./internal/config -v -run TestParse_BasicSections
 
 # Test with local agent (always use _test-agent, not new ones)
 ./agentctl init _test-agent
-./agentctl run _test-agent          # Terminal 1
+./agentctl serve _test-agent          # Terminal 1 (run/up still work as aliases)
 ./agentctl chat "hello" -a _test-agent  # Terminal 2
 ./agentctl -m "hello" -a _test-agent    # shortcut: unrecognized/no subcommand falls through to chat
 ```
@@ -23,13 +23,13 @@ go test ./internal/config -v -run TestParse_BasicSections
 Hexagonal: I/O adapters → Orchestrator → Domain logic
 
 ```
-Interfaces (cli/, telegram/) → ports.go (MessageHandler)
-                              → orchestration.go (sequence calls only)
-                              → session/ + agent/ + config/ (domain)
+Gateways (cli/, telegram/) → ports.go (MessageHandler)
+                            → orchestration.go (sequence calls only)
+                            → session/ + agent/ + config/ (domain)
 ```
 
 **Key packages:**
-- `internal/ports.go` - MessageHandler, OutboundDispatcher, Interface contracts
+- `internal/ports.go` - MessageHandler, OutboundDispatcher, Gateway contracts
 - `internal/orchestration.go` - Pure orchestration: hooks → resolve → load → agent.Run() → save
 - `internal/config/` - agent.toml, tools/*.toml, prompt parser
 - `internal/providers/llm/` - One file per provider (openai.go, openrouter.go, generic.go)
@@ -37,10 +37,10 @@ Interfaces (cli/, telegram/) → ports.go (MessageHandler)
 - `internal/shell/` - Execute(cmd, dir) pure function
 - `internal/hooks/` - .prerun.sh execution (non-fatal)
 - `internal/session/` - resolve.go, identity.go, jsonl.go, migrate.go, title.go
-- `internal/interfaces/` - cli/ + telegram/ packages, dispatch.go
+- `internal/gateways/` - cli/ + telegram/ packages, dispatch.go
 - `internal/syscommands/` - /new, /sessions, /sessions attach
 - `internal/resolution/` - Two-phase: directives ({{file:}}, {{exec:}}) → variables ({{$var}})
-- `internal/commands/` - init.go, run.go, chat.go, inject.go
+- `internal/commands/` - init.go, serve.go, chat.go, inject.go
 
 **Agent folder:**
 ```
@@ -55,11 +55,11 @@ tools/*.toml            # Command + params (auto-discover or explicit)
 ```
 
 **Flows:**
-- Normal: Interface → HandleMessage(iface, contactID, displayName, content) → orchestrator
-- Explicit: CLI --user/--session → HandleExplicitMessage(userID, sessionID, iface, content)
+- Normal: Gateway → HandleMessage(gateway, contactID, displayName, content) → orchestrator
+- Explicit: CLI --user/--session → HandleExplicitMessage(userID, sessionID, gateway, content)
 - Delivery: --deliver/--inject → HandleMessageWithOptions(MessageOptions)
 - Raw delivery: `deliver` command → HandleMessageWithOptions(MessageOptions{Raw: true}) → skips agent call, delivers Content verbatim
-- Commands: Interface detects "/" → syscommands.Parse() → helpers → format → return (no orchestrator)
+- Commands: Gateway detects "/" → syscommands.Parse() → helpers → format → return (no orchestrator)
 - CLI dispatch shortcut: no subcommand, or an unrecognized one, forwards straight to `chat` (`cmd/agentctl/main.go`) — e.g. `agentctl -m "hi" -a my-agent` == `agentctl chat -m "hi" -a my-agent`. Chat's own flag parser/`message.Resolve`/`registry.ResolveAgentPath` report errors as normal. `-a`/`--agent` falls back to `$AGENTCTL_AGENT` when omitted, same pattern as `-u`/`$AGENTCTL_USER` and `-s`/`$AGENTCTL_SESSION`.
 
 ## Config Files
@@ -128,7 +128,7 @@ allowed = true
 
 - Path: `.data/sessions/{userID}/{sessionID}.jsonl`
 - Session ID: `YYYYMMDD_HHMMSS_<6-hex>`
-- `.last_session`: plain text `interface=sessionID`
+- `.last_session`: plain text `interface=sessionID` (key name frozen on-disk; means gateway)
 - Identity linking merges multiple contacts → single user folder
 - **Thread safety:** Per-session mutexes (sync.Map) for Load/Save/SetMeta
 - **Migration:** Startup bulk + lazy per-message (idempotent, no restart needed)
@@ -147,7 +147,7 @@ Two-phase pipeline in `internal/resolution/`:
 
 2. **Variables** (substituteVariables):
    - Detection: `:` = directive, no `:` = variable
-   - System ($ prefix): `{{$agent}}`, `{{$agentpath}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$interface}}`, `{{$timestamp}}`, `{{$date}}`, `{{$now}}`, `{{$model}}`, `{{$provider}}`
+   - System ($ prefix): `{{$agent}}`, `{{$agentpath}}`, `{{$user}}`, `{{$username}}`, `{{$session}}`, `{{$gateway}}` (`{{$interface}}` still works as a deprecated alias), `{{$timestamp}}`, `{{$date}}`, `{{$now}}`, `{{$model}}`, `{{$provider}}`
    - User (no prefix): `{{var}}` (future use)
 
 Used by: prompt parser, tool return values
@@ -177,11 +177,11 @@ Runs before each agent execution:
 ## Design Decisions
 
 - **Hexagonal arch** - I/O → orchestration → domain
-- **Ports at root** - `internal/ports.go` for MessageHandler, OutboundDispatcher, Interface
+- **Ports at root** - `internal/ports.go` for MessageHandler, OutboundDispatcher, Gateway
 - **SessionStore in domain** - Avoids circular imports
 - **Merged contacts.toml** - [[identity]] (user-edited) + [[contact]] (auto-generated)
 - **Access control** - Three-tier: Identity.allowed > Contact.allowed > allow_by_default
-- **Interfaces own UX** - Detect commands, call helpers, format for CLI/Telegram
+- **Gateways own UX** - Detect commands, call helpers, format for CLI/Telegram
 - **No CLI framework** - Stdlib arg parsing, gohelp-luar for docs only
 - **Modular providers** - One file per provider (openai.go, openrouter.go, generic.go)
 - **Shell-based tools** - `sh -c` with {{var}} substitution
@@ -203,18 +203,18 @@ File: `internal/providers/llm/{name}.go`
 4. Add to `provider.go` factory
 5. Factory routes named providers + http(s):// URLs
 
-## Adding Interfaces
+## Adding Gateways
 
-Package: `internal/interfaces/{name}/`
+Package: `internal/gateways/{name}/`
 ```
 interface.go  # Start(), message routing, Sender
 commands.go   # handleCommand(), UX formatting
 ```
-1. Implement `internal.Interface` (Start method)
-2. Implement `Sender` (InterfaceName, Send)
+1. Implement `internal.Gateway` (Start method)
+2. Implement `Sender` (GatewayName, Send)
 3. Accept `internal.MessageHandler` in constructor
 4. Detect "/" → syscommands.Parse() → helpers → format → return
-5. Messages → handler.HandleMessage(iface, contactID, displayName, username, content)
-6. Add to factory in `internal/commands/run.go`
+5. Messages → handler.HandleMessage(gateway, contactID, displayName, username, content)
+6. Add to factory in `internal/commands/serve.go`
 
 Responsibility: Pure I/O, detect commands, format output. No session logic.

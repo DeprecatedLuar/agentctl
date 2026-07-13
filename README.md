@@ -34,7 +34,7 @@ cd my-agent
 echo "OPENROUTER_API_KEY=your_key_here" >> .env
 
 # 3. Start daemon (Terminal 1)
-agentctl run
+agentctl serve
 
 # 4. Chat with agent (Terminal 2)
 agentctl chat "hello"
@@ -48,8 +48,8 @@ agentctl chat "hello"
 | Command | Description | Example |
 |---------|-------------|---------|
 | `init [path]` | Create agent folder with templates | `agentctl init my-agent` |
-| `run [path]` | Start daemon with configured interfaces | `agentctl run my-agent` |
-| `chat` | Send message to running daemon | `agentctl chat -m "analyze logs" -a my-agent` |
+| `serve [path]` | Start daemon with configured gateways (`run`/`up` still work as aliases) | `agentctl serve my-agent` |
+| `chat` | Send message, one-shot and daemonless | `agentctl chat -m "analyze logs" -a my-agent` |
 | `inject [role]` | Inject turn into session without running agent | `agentctl inject assistant -m "response" --session 20260614_abc` |
 | `deliver <channel>` | Deliver literal text to channels without running the agent | `agentctl deliver telegram -m "Reminder: standup" --inject` |
 | `toolrun <name>` | Execute tool manually with parameters | `agentctl toolrun weather --city=London` |
@@ -59,7 +59,7 @@ agentctl chat "hello"
 
 ### Flags
 
-**`run` command:**
+**`serve` command:**
 - `--debug` - Debug logging with message previews
 - `--log` - Enable file logging (`.data/logs/`)
 - `-v, --verbose` - Verbose logging
@@ -86,7 +86,7 @@ agentctl chat "hello"
 - `-m, --message <text>` - Message to deliver (required; falls back to `AGENTCTL_MESSAGE`)
 - `--inject [role]` - Also inject the message into the target session(s); role is `assistant` (default), `user`, or `system`
 - `--note <text>` - System-role turn injected immediately before the delivered turn, never sent to the channel itself (requires `--inject`)
-- `-u, --user <id>` - User ID for bare-interface channel resolution
+- `-u, --user <id>` - User ID for bare-gateway channel resolution
 - `-a, --agent <path>` - Agent folder path (default: current dir)
 - Env vars: `AGENTCTL_USER`, `AGENTCTL_MESSAGE` (flags/args take priority)
 
@@ -105,7 +105,7 @@ agentctl chat "hello"
 ```
 my-agent/
 ├── config/
-│   └── agent.toml          # Provider, model, interfaces, memory config
+│   └── agent.toml          # Provider, model, gateways, memory config
 ├── prompts/
 │   └── chat_template       # Message template with sections (chat_template.md also accepted)
 ├── tools/                  # Tool definitions (*.toml)
@@ -114,7 +114,6 @@ my-agent/
 ├── .env                    # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
 └── .data/                  # Runtime data (auto-created)
     ├── contacts.toml       # Identities (user-edited) + contacts (auto-generated)
-    ├── agent.sock          # Unix socket for CLI interface
     ├── logs/               # Structured logs (if logging=true)
     └── sessions/           # Conversation history (per-user, per-session)
         └── {userID}/
@@ -170,7 +169,7 @@ model = "whisper-1"
 
 **Access control:**
 - `allow_by_default` - Default access policy for new contacts (true = auto-allow, false = require explicit approval)
-- `interfaces` - Active interfaces: `["cli"]` for CLI only, or `["cli", "telegram"]` for both
+- `interfaces` - Daemon-hosted gateways to enable (key name frozen on-disk): `["cli"]` for CLI only, or `["cli", "telegram"]` for both — note `cli` is never actually daemon-hosted, only `telegram` runs a persistent listener
 
 **Environment variables:**
 - Optional `[environment]` section for non-secret config defaults
@@ -246,7 +245,7 @@ Directives are processed at parse time (once per request, due to hot-reload):
 - `{{$user}}` - User identity ID
 - `{{$username}}` - User display name
 - `{{$session}}` - Current session ID
-- `{{$interface}}` - Interface name (cli, telegram)
+- `{{$gateway}}` - Gateway name (cli, telegram); `{{$interface}}` still works as a deprecated alias
 - `{{$model}}` - LLM model name
 - `{{$provider}}` - LLM provider name
 - `{{$timestamp}}` - RFC3339 timestamp
@@ -402,13 +401,13 @@ enabled = false                    # Hidden from AI entirely
 return = "{{file:.secrets/key}}"   # Loaded from file at execution time
 ```
 
-## Interfaces
+## Gateways
 
-Currently supports CLI and Telegram. Additional interfaces planned.
+Gateways determine how users interact with your agent. Currently supports CLI and Telegram. Additional gateways planned.
 
-### CLI Interface
+### CLI Gateway
 
-Default interface using Unix socket at `.data/agent.sock`.
+One-shot, in-process access - no daemon or socket required, and not actually daemon-hosted. Every `agentctl chat` call resolves the agent, runs the turn, and exits.
 
 ```bash
 # Send message (from agent folder)
@@ -428,12 +427,12 @@ agentctl chat "test" --debug
 - Sessions are organized by user ID (default: system username)
 - Each user can have multiple sessions
 - Session storage: `.data/sessions/{userID}/{sessionID}.jsonl`
-- `.last_session` tracks most recent session per interface
+- `.last_session` tracks most recent session per gateway
 - Use `--user` and `--session` flags for explicit control
 
-### Telegram Interface
+### Telegram Gateway
 
-Enable in `agent.toml`:
+The only daemon-hosted gateway - `agentctl serve` starts a persistent listener for it (long polling). Enable in `agent.toml`:
 
 ```toml
 interfaces = ["cli", "telegram"]
@@ -451,7 +450,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 - System commands: `/start`, `/new`, `/sessions` (session switching via ID, not numeric index)
 - Voice message transcription (requires `[audio]` config)
 
-Both interfaces share the same agent runtime and session storage.
+Both gateways share the same agent runtime and session storage.
 
 ### Identity Linking
 
@@ -486,11 +485,11 @@ first_seen = 2026-06-17T15:04:05Z
 - `[[contact]]` section is managed automatically
 
 **Benefits:**
-- Unified conversation history across interfaces
+- Unified conversation history across gateways
 - CLI and Telegram messages in same session
 - Automatic migration from unlinked to linked contacts
 
-**Contact format:** `interface:platformID`
+**Contact format:** `gateway:platformID` (stored on-disk under the `interface` key; see contacts.toml example above)
 - CLI: `cli:username` (system username)
 - Telegram: `telegram:userID` (Telegram user ID)
 
@@ -508,7 +507,7 @@ Edit any config file while daemon runs. Changes take effect immediately:
 
 ```bash
 # Terminal 1: daemon running
-agentctl run my-agent
+agentctl serve my-agent
 
 # Terminal 2: edit files
 vim agent.toml        # Change model
@@ -520,7 +519,7 @@ agentctl chat "test updated config"
 ```
 
 **What's hot-reloaded:**
-- `agent.toml` (provider, model, tools, interfaces, memory)
+- `agent.toml` (provider, model, tools, gateways, memory)
 - `tools/*.toml` (all tool definitions)
 - `prompt` (all sections and directives)
 - `.env` (API keys loaded fresh each request)
@@ -571,7 +570,7 @@ Root `.prerun.sh` auto-sources all tool prerun scripts, enabling modular setup.
 **1. Debug logging (`--debug` flag):**
 
 ```bash
-agentctl run my-agent --debug
+agentctl serve my-agent --debug
 ```
 
 Shows message previews, tool names, execution details in structured logs.
@@ -612,7 +611,7 @@ max_messages = 100  # Keep last N messages per session (0 = no persistence)
 **Session organization:**
 - User ID: System username (CLI) or Telegram user ID
 - Session ID: `YYYYMMDD_HHMMSS_<6-hex>` format
-- `.last_session`: Tracks most recent session per interface
+- `.last_session`: Tracks most recent session per gateway
 - Identity linking: Multiple contacts share same user folder
 
 **Persistence:**
@@ -627,11 +626,11 @@ max_messages = 100  # Keep last N messages per session (0 = no persistence)
 - `/sessions attach <number|id>` - Switch to specific session (CLI: supports numeric index; Telegram: use session ID)
 - `/start` - Welcome message (Telegram only)
 
-System commands are handled by the interface layer and don't reach the agent. They provide session management without consuming agent context.
+System commands are handled by the gateway layer and don't reach the agent. They provide session management without consuming agent context.
 
-### Cross-Interface Message Delivery
+### Cross-Gateway Message Delivery
 
-Send messages from one interface and deliver to others:
+Send messages from one gateway and deliver to others:
 
 ```bash
 # Send from CLI, deliver to telegram (doesn't modify telegram session)
@@ -646,7 +645,7 @@ agentctl chat -m "update" --deliver telegram --inject
 # Inject as a specific role instead of the assistant default
 agentctl chat -m "update" --deliver telegram --inject system
 
-# Specify user explicitly (user@interface format)
+# Specify user explicitly (user@gateway format)
 agentctl chat -m "message" --deliver alice@telegram
 ```
 
@@ -854,14 +853,15 @@ Guidelines:
 
 ## Architecture
 
-**Daemon + Interface model:**
+**Daemon + Gateway model:**
 
 ```
-agentctl run → daemon starts → loads interfaces from agent.toml
-                               ├─ CLI → Unix socket
-                               └─ Telegram → long polling
-                                       ↓
-                               Both share same agent runtime
+agentctl chat → one-shot, in-process, no daemon (CLI access)
+
+agentctl serve → daemon starts → loads daemon-hosted gateways from agent.toml
+                                └─ Telegram → long polling
+                                        ↓
+                                Shares the same agent runtime as one-shot chat
 ```
 
 **Component boundaries:**
@@ -869,7 +869,7 @@ agentctl run → daemon starts → loads interfaces from agent.toml
 - **internal/resolution** - Two-phase template resolution (directives → variables)
 - **internal/providers/llm** - AI provider abstraction (openai, openrouter, generic)
 - **internal/agent** - Orchestration (agentic loop, tool execution)
-- **internal/interfaces** - Interface abstraction (CLI, Telegram) + outbound dispatcher
+- **internal/gateways** - Gateway abstraction (CLI, Telegram) + outbound dispatcher
 - **internal/session** - Session management (identity linking, migration, JSONL persistence, channel resolution)
 - **internal/orchestration** - Application layer (message handling, delivery coordination, tool filtering)
 - **internal/shell** - Pure shell execution utility
@@ -885,7 +885,7 @@ agentctl run → daemon starts → loads interfaces from agent.toml
 **Modularity:**
 - Tools are shell commands
 - Providers are self-contained files
-- Interfaces share Runner abstraction
+- Gateways share Runner abstraction
 - Directives support file/exec operations
 
 ## Help System
@@ -898,7 +898,7 @@ agentctl help setup        # Getting started guide
 agentctl help config       # agent.toml reference
 agentctl help tools        # Tool definition format
 agentctl help prompt       # Prompt file format
-agentctl help interfaces   # CLI and Telegram setup
+agentctl help gateways     # CLI and Telegram setup
 agentctl help sessions     # Session management and history
 agentctl help prerun       # Prerun hook system
 ```
@@ -929,7 +929,7 @@ echo 'provider = "openrouter"' > agent.toml
 echo 'model = "openrouter/free"' >> agent.toml
 
 # Start daemon
-agentctl run
+agentctl serve
 
 # Test in another terminal
 agentctl chat "hello"

@@ -60,7 +60,7 @@ contacts = ["cli:bob"]
 
 	tests := []struct {
 		name       string
-		iface      string
+		gateway    string
 		platformID string
 		want       string
 	}{
@@ -68,17 +68,17 @@ contacts = ["cli:bob"]
 		{"known Telegram contact", "telegram", "12345", "alice"},
 		{"known CLI contact bob", "cli", "bob", "bob"},
 		{"unknown contact", "telegram", "99999", "telegram-99999"},
-		{"unknown interface", "discord", "user123", "discord-user123"},
+		{"unknown gateway", "discord", "user123", "discord-user123"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolveUser(tmpDir, tt.iface, tt.platformID)
+			got, err := ResolveUser(tmpDir, tt.gateway, tt.platformID)
 			if err != nil {
 				t.Fatalf("ResolveUser() error = %v", err)
 			}
 			if got != tt.want {
-				t.Errorf("ResolveUser(%s, %s) = %q, want %q", tt.iface, tt.platformID, got, tt.want)
+				t.Errorf("ResolveUser(%s, %s) = %q, want %q", tt.gateway, tt.platformID, got, tt.want)
 			}
 		})
 	}

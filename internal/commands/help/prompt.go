@@ -22,7 +22,7 @@ func PromptPage() *gohelp.Page {
 			gohelp.Item("{{$user}}", "User identity ID"),
 			gohelp.Item("{{$username}}", "Display name"),
 			gohelp.Item("{{$session}}", "Session ID"),
-			gohelp.Item("{{$interface}}", "Interface name (cli, telegram)"),
+			gohelp.Item("{{$gateway}}", "Gateway name (cli, telegram); {{$interface}} still works as a deprecated alias"),
 			gohelp.Item("{{$timestamp}}", "ISO8601 timestamp"),
 			gohelp.Item("{{$date}}", "ISO date (YYYY-MM-DD)"),
 			gohelp.Item("{{$model}}", "Model name"),

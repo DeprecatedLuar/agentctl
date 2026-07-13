@@ -1,4 +1,4 @@
-package interfaces
+package gateways
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ type mockSender struct {
 	sendErr  error
 }
 
-func (m *mockSender) InterfaceName() string {
+func (m *mockSender) GatewayName() string {
 	return m.name
 }
 
@@ -58,15 +58,15 @@ func TestOutboundDispatcher_Send_Success(t *testing.T) {
 	}
 }
 
-func TestOutboundDispatcher_Send_UnknownInterface(t *testing.T) {
+func TestOutboundDispatcher_Send_UnknownGateway(t *testing.T) {
 	dispatcher := NewOutboundDispatcher()
 
 	err := dispatcher.Send("unknown", "123", "test")
 	if err == nil {
-		t.Fatal("expected error for unknown interface")
+		t.Fatal("expected error for unknown gateway")
 	}
 
-	expectedMsg := `interface "unknown" not registered`
+	expectedMsg := `gateway "unknown" not registered`
 	if err.Error() != expectedMsg {
 		t.Errorf("expected error %q, got %q", expectedMsg, err.Error())
 	}
@@ -89,7 +89,7 @@ func TestOutboundDispatcher_Send_SenderError(t *testing.T) {
 	}
 }
 
-func TestOutboundDispatcher_MultipleInterfaces(t *testing.T) {
+func TestOutboundDispatcher_MultipleGateways(t *testing.T) {
 	dispatcher := NewOutboundDispatcher()
 
 	telegram := &mockSender{name: "telegram"}

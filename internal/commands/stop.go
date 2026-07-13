@@ -18,7 +18,7 @@ const (
 	stopGraceTimeout = 5 * time.Second
 )
 
-// HandleStop signals a running `agentctl run` daemon to shut down.
+// HandleStop signals a running `agentctl serve` daemon to shut down.
 // With no flags: finds the agent in the current directory tree.
 // With -a/--agent: resolves the provided name/path.
 func HandleStop(args []string) error {
@@ -74,7 +74,7 @@ func HandleStop(args []string) error {
 	return nil
 }
 
-// readLockPID reads and parses the PID written by `run.go` into the lock
+// readLockPID reads and parses the PID written by `serve.go` into the lock
 // file. Returns an error if the file is missing, empty, or malformed.
 func readLockPID(lockPath string) (int, error) {
 	data, err := os.ReadFile(lockPath)

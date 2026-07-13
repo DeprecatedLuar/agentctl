@@ -36,7 +36,7 @@ func Parse(input string) (*Command, error) {
 
 // NewSession creates a new session and auto-switches to it
 // Returns session metadata and agent config info
-func NewSession(userID, iface string, store session.SessionStore, agentFolder string) (CommandResult, error) {
+func NewSession(userID, gateway string, store session.SessionStore, agentFolder string) (CommandResult, error) {
 	// Load agent config to get model/provider/memory info
 	agentConfig, issues := config.LoadAgent(agentFolder)
 	if agentConfig == nil {
@@ -50,7 +50,7 @@ func NewSession(userID, iface string, store session.SessionStore, agentFolder st
 	}
 
 	// Mint new session and auto-switch to it (also creates its backing file)
-	_, err := session.MintSession(store, userID, iface)
+	_, err := session.MintSession(store, userID, gateway)
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("failed to create new session: %w", err)
 	}
@@ -74,7 +74,7 @@ func NewSession(userID, iface string, store session.SessionStore, agentFolder st
 
 // ListSessions lists all sessions for the user
 // Returns sorted list with active session marked
-func ListSessions(userID, iface string, store session.SessionStore) (CommandResult, error) {
+func ListSessions(userID, gateway string, store session.SessionStore) (CommandResult, error) {
 	// Get all sessions
 	sessions, err := store.ListSessions(userID)
 	if err != nil {
@@ -82,7 +82,7 @@ func ListSessions(userID, iface string, store session.SessionStore) (CommandResu
 	}
 
 	// Get current active session
-	activeSessionID, err := store.GetLast(userID, iface)
+	activeSessionID, err := store.GetLast(userID, gateway)
 	if err != nil {
 		// If no active session, that's okay
 		activeSessionID = ""
@@ -120,7 +120,7 @@ func ListSessions(userID, iface string, store session.SessionStore) (CommandResu
 
 // SwitchSession switches to a session by number or ID
 // Accepts either a numeric index (1-based) or a literal session ID
-func SwitchSession(sessionArg, userID, iface string, store session.SessionStore) (CommandResult, error) {
+func SwitchSession(sessionArg, userID, gateway string, store session.SessionStore) (CommandResult, error) {
 	if sessionArg == "" {
 		return CommandResult{}, fmt.Errorf("session argument required (number or session ID)")
 	}
@@ -158,7 +158,7 @@ func SwitchSession(sessionArg, userID, iface string, store session.SessionStore)
 	}
 
 	// Switch to session
-	if err := store.SetLast(userID, iface, targetSessionID); err != nil {
+	if err := store.SetLast(userID, gateway, targetSessionID); err != nil {
 		return CommandResult{}, fmt.Errorf("failed to switch session: %w", err)
 	}
 

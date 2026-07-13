@@ -3,14 +3,14 @@ package telegram
 import (
 	"fmt"
 
-	"github.com/DeprecatedLuar/agentctl/internal/interfaces"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways"
 	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
 )
 
 // handleCommand processes commands and returns Telegram-formatted output
-func (t *TelegramInterface) handleCommand(cmd *syscommands.Command, contactID string) (string, error) {
+func (t *TelegramGateway) handleCommand(cmd *syscommands.Command, contactID string) (string, error) {
 	// Resolve user ID
-	userID, err := t.store.ResolveUser(interfaceNameTelegram, contactID)
+	userID, err := t.store.ResolveUser(gatewayNameTelegram, contactID)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve user: %w", err)
 	}
@@ -20,7 +20,7 @@ func (t *TelegramInterface) handleCommand(cmd *syscommands.Command, contactID st
 		return telegramStartMessage, nil
 
 	case "new":
-		result, err := syscommands.NewSession(userID, interfaceNameTelegram, t.store, t.agentFolder)
+		result, err := syscommands.NewSession(userID, gatewayNameTelegram, t.store, t.agentFolder)
 		if err != nil {
 			return "", err
 		}
@@ -33,7 +33,7 @@ func (t *TelegramInterface) handleCommand(cmd *syscommands.Command, contactID st
 			return "", fmt.Errorf("/sessions attach not supported on Telegram (use numbered list on CLI)")
 		}
 		// List sessions
-		result, err := syscommands.ListSessions(userID, interfaceNameTelegram, t.store)
+		result, err := syscommands.ListSessions(userID, gatewayNameTelegram, t.store)
 		if err != nil {
 			return "", err
 		}
@@ -46,11 +46,11 @@ func (t *TelegramInterface) handleCommand(cmd *syscommands.Command, contactID st
 
 // formatNewSession formats /new command result for Telegram
 func formatNewSession(result syscommands.CommandResult) string {
-	return interfaces.FormatNewSession(result)
+	return gateways.FormatNewSession(result)
 }
 
 // formatTelegramSessionList formats /sessions command result for Telegram (plain list)
 func formatTelegramSessionList(result syscommands.CommandResult) string {
 	sessions := result.Data.([]syscommands.SessionInfo)
-	return interfaces.FormatSessionList(sessions, false)
+	return gateways.FormatSessionList(sessions, false)
 }

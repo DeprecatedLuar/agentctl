@@ -9,8 +9,8 @@ func SetupPage() *gohelp.Page {
 			gohelp.Item("1. Create agent", "Initialize a new agent folder", "agentctl init my-agent"),
 			gohelp.Item("2. Configure .env", "Add API key: OPENAI_API_KEY or OPENROUTER_API_KEY"),
 			gohelp.Item("3. Edit agent.toml", "Set provider (openai/openrouter) and model name"),
-			gohelp.Item("4. Run daemon", "Start agent with configured interfaces", "agentctl run my-agent"),
-			gohelp.Item("5. Send messages", "Chat with agent via CLI", "agentctl chat \"hello\" -a my-agent"),
+			gohelp.Item("4. Send messages", "No daemon needed - chat runs in-process", "agentctl chat -m \"hello\" -a my-agent"),
+			gohelp.Item("5. (Optional) Start daemon", "Only needed for persistent gateways (Telegram) or routines", "agentctl serve my-agent"),
 		).
 		Section("Provider Setup",
 			gohelp.Item("OpenAI", "Set OPENAI_API_KEY in .env, use provider=\"openai\" in agent.toml"),

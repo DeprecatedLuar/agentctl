@@ -22,18 +22,18 @@ import (
 
 const (
 	// Telegram configuration
-	telegramEnvFile      = ".env"
-	telegramBotTokenKey  = "TELEGRAM_BOT_TOKEN"
-	telegramPollTimeout  = 60
-	typingInterval       = 4 * time.Second
-	interfaceNameTelegram = "telegram"
+	telegramEnvFile     = ".env"
+	telegramBotTokenKey = "TELEGRAM_BOT_TOKEN"
+	telegramPollTimeout = 60
+	typingInterval      = 4 * time.Second
+	gatewayNameTelegram = "telegram"
 
 	// telegramStartMessage is sent in response to the /start command
 	telegramStartMessage = "Agent ready. Send a message to begin."
 )
 
-// TelegramInterface implements the Telegram bot interface
-type TelegramInterface struct {
+// TelegramGateway implements the Telegram bot gateway
+type TelegramGateway struct {
 	agentFolder string
 	token       string
 	transcriber audio.Transcriber // Optional, for voice message support
@@ -44,8 +44,11 @@ type TelegramInterface struct {
 	bot         *tgbotapi.BotAPI // Initialized in Start, used by Sender interface
 }
 
-// NewTelegram creates a new Telegram interface
-func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler internal.MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) (*TelegramInterface, error) {
+// NewTelegram creates a new Telegram gateway. The bot API instance is
+// authorized eagerly (not deferred to Start) so a Sender is usable
+// immediately - one-shot callers (chat/deliver) register a Sender for
+// --deliver without ever calling Start.
+func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler internal.MessageHandler, store session.SessionStore, logger *slog.Logger, verbose bool) (*TelegramGateway, error) {
 	// Load .env from agent folder
 	envPath := filepath.Join(agentFolder, telegramEnvFile)
 	_ = godotenv.Load(envPath)
@@ -55,7 +58,16 @@ func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler inte
 		return nil, fmt.Errorf("%s not found in %s or environment", telegramBotTokenKey, telegramEnvFile)
 	}
 
-	return &TelegramInterface{
+	bot, err := tgbotapi.NewBotAPI(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create telegram bot: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("telegram authorized", "bot", bot.Self.UserName)
+	}
+
+	return &TelegramGateway{
 		agentFolder: agentFolder,
 		token:       token,
 		transcriber: transcriber,
@@ -63,23 +75,14 @@ func NewTelegram(agentFolder string, transcriber audio.Transcriber, handler inte
 		store:       store,
 		logger:      logger,
 		verbose:     verbose,
+		bot:         bot,
 	}, nil
 }
 
-// Start begins the Telegram bot polling loop
-func (t *TelegramInterface) Start(ctx context.Context) error {
-	// Create bot API instance
-	bot, err := tgbotapi.NewBotAPI(t.token)
-	if err != nil {
-		return fmt.Errorf("failed to create telegram bot: %w", err)
-	}
-
-	// Store bot for Sender interface
-	t.bot = bot
-
-	if t.logger != nil {
-		t.logger.Info("telegram authorized", "bot", bot.Self.UserName)
-	}
+// Start begins the Telegram bot polling loop. The bot API instance is
+// already authorized (see NewTelegram).
+func (t *TelegramGateway) Start(ctx context.Context) error {
+	bot := t.bot
 
 	// Configure updates
 	u := tgbotapi.NewUpdate(0)
@@ -105,7 +108,7 @@ func (t *TelegramInterface) Start(ctx context.Context) error {
 
 // send delivers a Telegram message and logs any error instead of silently
 // discarding it.
-func (t *TelegramInterface) send(bot *tgbotapi.BotAPI, msg tgbotapi.Chattable) {
+func (t *TelegramGateway) send(bot *tgbotapi.BotAPI, msg tgbotapi.Chattable) {
 	if _, err := bot.Send(msg); err != nil && t.logger != nil {
 		t.logger.Error("telegram send failed", "error", err)
 	}
@@ -115,13 +118,13 @@ func (t *TelegramInterface) send(bot *tgbotapi.BotAPI, msg tgbotapi.Chattable) {
 // any error. Chat actions are answered with a bare bool by the Telegram API,
 // so they must go through bot.Request, not bot.Send (which decodes into
 // tgbotapi.Message).
-func (t *TelegramInterface) sendAction(bot *tgbotapi.BotAPI, action tgbotapi.Chattable) {
+func (t *TelegramGateway) sendAction(bot *tgbotapi.BotAPI, action tgbotapi.Chattable) {
 	if _, err := bot.Request(action); err != nil && t.logger != nil {
 		t.logger.Error("telegram send action failed", "error", err)
 	}
 }
 
-func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, message *tgbotapi.Message) {
+func (t *TelegramGateway) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, message *tgbotapi.Message) {
 	chatID := message.Chat.ID
 	userID := message.From.ID
 	text := message.Text
@@ -178,7 +181,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 
 	// Log message received
 	if t.logger != nil {
-		msg := fmt.Sprintf("message received %s:%s", contactID, interfaceNameTelegram)
+		msg := fmt.Sprintf("message received %s:%s", contactID, gatewayNameTelegram)
 		if t.verbose {
 			t.logger.Info(msg, "kind", logger.KindRecv, "content", text)
 		} else {
@@ -191,7 +194,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	go t.sendTypingLoop(typingCtx, bot, chatID)
 
 	// Handle message via service layer (pure I/O adapter)
-	response, runErr := t.handler.HandleMessage(interfaceNameTelegram, contactID, displayName, username, text)
+	response, runErr := t.handler.HandleMessage(gatewayNameTelegram, contactID, displayName, username, text)
 
 	// Stop typing indicator
 	cancelTyping()
@@ -199,7 +202,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	// Send response or error
 	if runErr != nil {
 		if t.logger != nil {
-			t.logger.Error("agent error", "contact", contactID, "interface", interfaceNameTelegram, "error", runErr)
+			t.logger.Error("agent error", "contact", contactID, "gateway", gatewayNameTelegram, "error", runErr)
 		}
 		errorMsg := fmt.Sprintf("Error: %v", runErr)
 		msg := tgbotapi.NewMessage(chatID, formatForTelegram(errorMsg))
@@ -210,7 +213,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 
 	// Log response sent
 	if t.logger != nil {
-		msg := fmt.Sprintf("response sent %s:%s", contactID, interfaceNameTelegram)
+		msg := fmt.Sprintf("response sent %s:%s", contactID, gatewayNameTelegram)
 		if t.verbose {
 			t.logger.Info(msg, "kind", logger.KindSent, "content", response)
 		} else {
@@ -223,7 +226,7 @@ func (t *TelegramInterface) handleMessage(ctx context.Context, bot *tgbotapi.Bot
 	t.send(bot, msg)
 }
 
-func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
+func (t *TelegramGateway) sendTypingLoop(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
 	// Send typing immediately
 	action := tgbotapi.NewChatAction(chatID, "typing")
 	t.sendAction(bot, action)
@@ -242,7 +245,7 @@ func (t *TelegramInterface) sendTypingLoop(ctx context.Context, bot *tgbotapi.Bo
 	}
 }
 
-func (t *TelegramInterface) transcribeVoiceMessage(bot *tgbotapi.BotAPI, voice *tgbotapi.Voice) (string, error) {
+func (t *TelegramGateway) transcribeVoiceMessage(bot *tgbotapi.BotAPI, voice *tgbotapi.Voice) (string, error) {
 	// Get file download URL
 	fileConfig := tgbotapi.FileConfig{FileID: voice.FileID}
 	file, err := bot.GetFile(fileConfig)
@@ -278,13 +281,13 @@ func (t *TelegramInterface) transcribeVoiceMessage(bot *tgbotapi.BotAPI, voice *
 	return text, nil
 }
 
-// InterfaceName returns the interface identifier for Sender interface
-func (t *TelegramInterface) InterfaceName() string {
-	return interfaceNameTelegram
+// GatewayName returns the gateway identifier for the Sender interface
+func (t *TelegramGateway) GatewayName() string {
+	return gatewayNameTelegram
 }
 
 // Send delivers a message to the specified Telegram chat ID (Sender interface)
-func (t *TelegramInterface) Send(platformID, content string) error {
+func (t *TelegramGateway) Send(platformID, content string) error {
 	if t.bot == nil {
 		return fmt.Errorf("telegram bot not initialized")
 	}

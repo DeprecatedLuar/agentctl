@@ -20,7 +20,7 @@ const (
 	identitiesFilePermissions = 0644
 
 	// Contact key format
-	contactKeySeparator     = ":" // Separator for interface:platformID
+	contactKeySeparator     = ":" // Separator for gateway:platformID
 	unlinkedFolderSeparator = "-" // Separator for filesystem folder names
 	contactKeyExpectedParts = 2   // Expected parts when splitting contact key
 
@@ -42,13 +42,15 @@ func resolveAllowed(explicit *bool) bool {
 // Identity represents a user with multiple contact points
 type Identity struct {
 	ID       string   `toml:"id"`
-	Contacts []string `toml:"contacts"` // Format: "interface:platformID"
+	Contacts []string `toml:"contacts"`          // Format: "gateway:platformID"
 	Allowed  *bool    `toml:"allowed,omitempty"` // Access control (nil = use default policy)
 }
 
 // Contact represents a contact entry (auto-generated)
 type Contact struct {
-	Interface   string    `toml:"interface"`
+	// Gateway is FROZEN on-disk as "interface" (toml tag) - every existing
+	// contacts.toml already has this key; only the Go identifier changed.
+	Gateway     string    `toml:"interface"`
 	ID          string    `toml:"id"`
 	DisplayName string    `toml:"display_name"`
 	Username    string    `toml:"username,omitempty"` // Optional: @handle (e.g., Telegram @username)
@@ -62,10 +64,10 @@ type identitiesConfig struct {
 	Contacts   []Contact  `toml:"contact"`
 }
 
-// ResolveUser returns userId for a given interface+platformID.
+// ResolveUser returns userId for a given gateway+platformID.
 // Searches identities.toml for a matching contact string.
 // Returns UnlinkedFolderName if no match found (unlinked contact).
-func ResolveUser(agentFolder, iface, platformID string) (string, error) {
+func ResolveUser(agentFolder, gateway, platformID string) (string, error) {
 	identitiesPath := filepath.Join(agentFolder, identitiesFile)
 
 	// Read identities.toml
@@ -73,7 +75,7 @@ func ResolveUser(agentFolder, iface, platformID string) (string, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No identities file - return unlinked folder name
-			return UnlinkedFolderName(iface, platformID), nil
+			return UnlinkedFolderName(gateway, platformID), nil
 		}
 		return "", fmt.Errorf("failed to read identities.toml: %w", err)
 	}
@@ -85,7 +87,7 @@ func ResolveUser(agentFolder, iface, platformID string) (string, error) {
 	}
 
 	// Search for matching contact
-	contactKey := ContactKey(iface, platformID)
+	contactKey := ContactKey(gateway, platformID)
 	for _, identity := range cfg.Identities {
 		for _, contact := range identity.Contacts {
 			if contact == contactKey {
@@ -95,18 +97,18 @@ func ResolveUser(agentFolder, iface, platformID string) (string, error) {
 	}
 
 	// No match - return unlinked folder name
-	return UnlinkedFolderName(iface, platformID), nil
+	return UnlinkedFolderName(gateway, platformID), nil
 }
 
-// ContactKey returns canonical "interface:platformID" string
-func ContactKey(iface, platformID string) string {
-	return fmt.Sprintf("%s%s%s", iface, contactKeySeparator, platformID)
+// ContactKey returns canonical "gateway:platformID" string
+func ContactKey(gateway, platformID string) string {
+	return fmt.Sprintf("%s%s%s", gateway, contactKeySeparator, platformID)
 }
 
 // UnlinkedFolderName returns filesystem-safe folder name for unlinked contact
 // e.g. "telegram:12345678" -> "telegram-12345678"
-func UnlinkedFolderName(iface, platformID string) string {
-	return fmt.Sprintf("%s%s%s", iface, unlinkedFolderSeparator, platformID)
+func UnlinkedFolderName(gateway, platformID string) string {
+	return fmt.Sprintf("%s%s%s", gateway, unlinkedFolderSeparator, platformID)
 }
 
 // LoadIdentities loads all identities from contacts.toml
@@ -205,18 +207,18 @@ func saveIdentitiesFile(agentFolder string, cfg *identitiesConfig) error {
 }
 
 // EnsureContact appends contact entry if not already present.
-// Dedup key is interface+id combination.
+// Dedup key is gateway+id combination.
 // Preserves identities section when writing.
-func EnsureContact(agentFolder, iface, platformID, displayName, username string) error {
+func EnsureContact(agentFolder, gateway, platformID, displayName, username string) error {
 	// Load entire file (both sections)
 	cfg, err := loadIdentitiesFile(agentFolder)
 	if err != nil {
 		return err
 	}
 
-	// Check if contact already exists (dedup by interface+id)
+	// Check if contact already exists (dedup by gateway+id)
 	for _, c := range cfg.Contacts {
-		if c.Interface == iface && c.ID == platformID {
+		if c.Gateway == gateway && c.ID == platformID {
 			// Already exists, no-op
 			return nil
 		}
@@ -231,7 +233,7 @@ func EnsureContact(agentFolder, iface, platformID, displayName, username string)
 
 	// Append new contact
 	newContact := Contact{
-		Interface:   iface,
+		Gateway:     gateway,
 		ID:          platformID,
 		DisplayName: displayName,
 		Username:    username,
@@ -248,17 +250,17 @@ func EnsureContact(agentFolder, iface, platformID, displayName, username string)
 // CheckAccess checks if a contact is allowed to interact with the agent.
 // Three-tier precedence: Identity.allowed > Contact.allowed > allow_by_default
 // Returns (allowed bool, err error) - false means denial, error means file I/O issue
-func CheckAccess(agentFolder, iface, platformID string) (bool, error) {
+func CheckAccess(agentFolder, gateway, platformID string) (bool, error) {
 	// Load contacts file
 	cfg, err := loadIdentitiesFile(agentFolder)
 	if err != nil {
 		return false, fmt.Errorf("failed to load contacts: %w", err)
 	}
 
-	// Find contact by interface+platformID
+	// Find contact by gateway+platformID
 	var contact *Contact
 	for i := range cfg.Contacts {
-		if cfg.Contacts[i].Interface == iface && cfg.Contacts[i].ID == platformID {
+		if cfg.Contacts[i].Gateway == gateway && cfg.Contacts[i].ID == platformID {
 			contact = &cfg.Contacts[i]
 			break
 		}
@@ -270,7 +272,7 @@ func CheckAccess(agentFolder, iface, platformID string) (bool, error) {
 	}
 
 	// Check if contact is linked to an identity
-	contactKey := ContactKey(iface, platformID)
+	contactKey := ContactKey(gateway, platformID)
 	for _, identity := range cfg.Identities {
 		for _, identityContact := range identity.Contacts {
 			if identityContact == contactKey {
@@ -289,17 +291,17 @@ func CheckAccess(agentFolder, iface, platformID string) (bool, error) {
 	return resolveAllowed(contact.Allowed), nil
 }
 
-// ParseContactKey splits a contact key "interface:platformID" into components
-func ParseContactKey(contactKey string) (iface, platformID string, err error) {
+// ParseContactKey splits a contact key "gateway:platformID" into components
+func ParseContactKey(contactKey string) (gateway, platformID string, err error) {
 	parts := strings.SplitN(contactKey, contactKeySeparator, contactKeyExpectedParts)
 	if len(parts) != contactKeyExpectedParts {
-		return "", "", fmt.Errorf("invalid contact key format (expected 'interface%splatformID'): %s", contactKeySeparator, contactKey)
+		return "", "", fmt.Errorf("invalid contact key format (expected 'gateway%splatformID'): %s", contactKeySeparator, contactKey)
 	}
 	return parts[0], parts[1], nil
 }
 
-// WarnDuplicateContacts scans identities.toml for duplicate interface contacts.
-// Logs warning once at startup if any identity has multiple contacts for the same interface.
+// WarnDuplicateContacts scans identities.toml for duplicate gateway contacts.
+// Logs warning once at startup if any identity has multiple contacts for the same gateway.
 // First match wins in LookupPlatformID when duplicates exist.
 func WarnDuplicateContacts(agentFolder string, logger *slog.Logger) error {
 	identities, err := LoadIdentities(agentFolder)
@@ -308,26 +310,26 @@ func WarnDuplicateContacts(agentFolder string, logger *slog.Logger) error {
 	}
 
 	for _, identity := range identities {
-		// Track seen interfaces
+		// Track seen gateways
 		seen := make(map[string]bool)
 		warned := make(map[string]bool)
 
 		for _, contact := range identity.Contacts {
-			iface, _, err := ParseContactKey(contact)
+			gateway, _, err := ParseContactKey(contact)
 			if err != nil {
 				// Skip malformed contacts
 				continue
 			}
 
-			if seen[iface] && !warned[iface] {
-				// Found duplicate - log warning once per interface
-				logger.Warn("identity has multiple contacts for same interface, using first match",
+			if seen[gateway] && !warned[gateway] {
+				// Found duplicate - log warning once per gateway
+				logger.Warn("identity has multiple contacts for same gateway, using first match",
 					"identity", identity.ID,
-					"interface", iface)
-				warned[iface] = true
+					"gateway", gateway)
+				warned[gateway] = true
 			}
 
-			seen[iface] = true
+			seen[gateway] = true
 		}
 	}
 
