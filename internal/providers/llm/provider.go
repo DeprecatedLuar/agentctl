@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/debug"
@@ -314,6 +315,29 @@ func convertTool(tool *config.ToolConfig) openai.ChatCompletionToolParam {
 			Parameters:  openai.FunctionParameters(parametersSchema),
 		},
 	}
+}
+
+// reasoningWarned tracks which providerNames have already logged the
+// unsupported-reasoning warning, so it fires once per process lifetime
+// (hot-reload rebuilds the provider every request — without this, a
+// long-running `serve` daemon would repeat the warning on every message).
+var reasoningWarned sync.Map
+
+// warnUnsupportedReasoning logs once per process, the first time the config
+// asks for reasoning carryover on a provider that can never honor it — a
+// static, provider-level fact, not something that depends on the model or a
+// specific call. Callers that DO support it (OpenRouter) never call this; a
+// per-call, per-model "model didn't return reasoning this turn" is logged
+// separately in SendMessages at Debug level instead, since that's normal and
+// expected there.
+func warnUnsupportedReasoning(logger *slog.Logger, providerName string, cfg *config.AgentConfig) {
+	if logger == nil || !cfg.Advanced.ReasoningEnabled() {
+		return
+	}
+	if _, alreadyWarned := reasoningWarned.LoadOrStore(providerName, struct{}{}); alreadyWarned {
+		return
+	}
+	logger.Info("reasoning_carryover configured but provider does not support reasoning preservation", "provider", providerName)
 }
 
 // NewProvider creates a provider based on the config. recordExchanges controls

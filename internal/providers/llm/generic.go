@@ -25,6 +25,8 @@ func NewGenericProvider(cfg *config.AgentConfig, agentFolder, userFolder string,
 	// API key is optional for custom endpoints (local servers may not need auth)
 	apiKey := os.Getenv(genericAPIKey)
 
+	warnUnsupportedReasoning(logger, genericProviderName, cfg)
+
 	return &baseProvider{
 		client:       buildClient(apiKey, cfg.Agent.Provider),
 		model:        cfg.Agent.Model,

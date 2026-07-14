@@ -28,6 +28,8 @@ func NewOpenAIProvider(cfg *config.AgentConfig, agentFolder, userFolder string, 
 		return nil, fmt.Errorf("%s not found in %s or environment", openaiAPIKey, openaiEnvFile)
 	}
 
+	warnUnsupportedReasoning(logger, openaiProvider, cfg)
+
 	return &baseProvider{
 		client:       buildClient(apiKey, openaiBaseURL),
 		model:        cfg.Agent.Model,
