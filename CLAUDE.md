@@ -84,7 +84,7 @@ provider = "whisper"
 model = "whisper-1"
 
 [advanced]
-reasoning = "tools"  # none | tools | all — default "tools"
+reasoning_carryover = "tools"  # none | tools | all — default "tools"
 reasoning_effort = "medium"  # minimal | low | medium | high | max
 ```
 

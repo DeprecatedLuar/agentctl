@@ -118,28 +118,32 @@ type AudioConfig struct {
 }
 
 type AdvancedConfig struct {
-	Reasoning       string `toml:"reasoning"`        // none | tools | all (all reserved, aliases to tools)
-	ReasoningEffort string `toml:"reasoning_effort"` // minimal | low | medium | high | max
+	// ReasoningCarryover controls whether reasoning is carried from one
+	// tool-call turn into the model's own next request (none | tools | all;
+	// all reserved, aliases to tools). Distinct from any future user-facing
+	// reasoning *display* setting — this one is purely internal continuity.
+	ReasoningCarryover string `toml:"reasoning_carryover"`
+	ReasoningEffort    string `toml:"reasoning_effort"` // minimal | low | medium | high | max
 }
 
-// ReasoningMode normalizes the configured reasoning mode: empty defaults to
+// ReasoningCarryoverMode normalizes the configured mode: empty defaults to
 // ReasoningTools (on by default), and the reserved "all" value aliases to
 // ReasoningTools until user-facing reasoning display exists.
-func (a AdvancedConfig) ReasoningMode() string {
-	switch a.Reasoning {
+func (a AdvancedConfig) ReasoningCarryoverMode() string {
+	switch a.ReasoningCarryover {
 	case "", ReasoningTools, ReasoningAll:
 		return ReasoningTools
 	case ReasoningNone:
 		return ReasoningNone
 	default:
-		return a.Reasoning // invalid value surfaced by LoadAgent validation
+		return a.ReasoningCarryover // invalid value surfaced by LoadAgent validation
 	}
 }
 
 // ReasoningEnabled reports whether reasoning should be requested from the
-// provider and preserved across tool-call turns.
+// provider and carried over across tool-call turns.
 func (a AdvancedConfig) ReasoningEnabled() bool {
-	return a.ReasoningMode() == ReasoningTools
+	return a.ReasoningCarryoverMode() == ReasoningTools
 }
 
 type AccessConfig struct {
@@ -228,13 +232,13 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 		})
 	}
 
-	// Validate [advanced] reasoning settings
-	switch cfg.Advanced.Reasoning {
+	// Validate [advanced] reasoning_carryover settings
+	switch cfg.Advanced.ReasoningCarryover {
 	case "", ReasoningNone, ReasoningTools, ReasoningAll:
 	default:
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
-			Message: fmt.Sprintf("%s: [advanced] reasoning must be 'none', 'tools', or 'all' (got %q)", agentConfigFile, cfg.Advanced.Reasoning),
+			Message: fmt.Sprintf("%s: [advanced] reasoning_carryover must be 'none', 'tools', or 'all' (got %q)", agentConfigFile, cfg.Advanced.ReasoningCarryover),
 		})
 	}
 	switch cfg.Advanced.ReasoningEffort {
