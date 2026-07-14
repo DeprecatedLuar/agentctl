@@ -179,8 +179,24 @@ func (o *Orchestrator) handleMessage(userID, sessionID, gateway, content string,
 		Content:   content,
 	}
 
+	// Build a callback to deliver intermediate narration turns (text
+	// alongside tool calls) back to the originating gateway/contact as
+	// soon as they happen, instead of only the final no-tool-call reply.
+	var onPartial func(string)
+	if o.Dispatcher != nil {
+		if platformID, perr := session.LookupPlatformID(o.AgentFolder, userID, gateway); perr == nil {
+			onPartial = func(text string) {
+				if err := o.Dispatcher.Send(gateway, platformID, text); err != nil {
+					o.Logger.Warn("partial delivery failed", "gateway", gateway, "error", err)
+				}
+			}
+		} else {
+			o.Logger.Warn("partial delivery lookup failed", "error", perr)
+		}
+	}
+
 	// Call agent
-	response, err := agent.Run(agentCfg, tools, prompt, history, input, o.AgentFolder, o.Logger, o.Verbose, o.Debug)
+	response, err := agent.Run(agentCfg, tools, prompt, history, input, o.AgentFolder, o.Logger, o.Verbose, o.Debug, onPartial)
 	if err != nil {
 		o.Logger.Error("agent execution failed", "error", err)
 		return "", err

@@ -39,7 +39,7 @@ type Input struct {
 type Message = llm.Message
 
 // Run executes the agent with the given configuration and input
-func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, lg *slog.Logger, verbose bool, debug bool) (string, error) {
+func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, lg *slog.Logger, verbose bool, debug bool, onPartial func(text string)) (string, error) {
 	// Create provider
 	userFolder := session.UserFolder(agentFolder, input.UserID)
 	prov, err := llm.NewProvider(cfg, agentFolder, userFolder, true, lg)
@@ -120,6 +120,14 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 		// user-facing [SENT] once it actually delivers this response.
 		if len(toolCalls) == 0 {
 			return response, nil
+		}
+
+		// Narration alongside tool calls would otherwise only ever reach the
+		// model's own context (via the history append below) and never the
+		// user — surface it now, since this branch is mutually exclusive
+		// with the no-tool-calls return above (never delivered twice).
+		if response != "" && onPartial != nil {
+			onPartial(response)
 		}
 
 		// Add assistant message with tool calls to history

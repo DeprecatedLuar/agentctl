@@ -9,6 +9,7 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal"
 	"github.com/DeprecatedLuar/agentctl/internal/config"
 	"github.com/DeprecatedLuar/agentctl/internal/gateways"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways/cli"
 	"github.com/DeprecatedLuar/agentctl/internal/gateways/telegram"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
@@ -47,6 +48,7 @@ func assembleOrchestrator(absPath string, transcriber audio.Transcriber, lg *slo
 	}
 
 	dispatcher := gateways.NewOutboundDispatcher()
+	dispatcher.Register(cli.NewSender())
 
 	var gatewayList []internal.Gateway
 	var actualNames []string
