@@ -58,7 +58,7 @@ func GenerateTitle(store SessionStore, cfg *config.AgentConfig, agentFolder, use
 	prompt := fmt.Sprintf(titlePrompt, userMsg, assistantMsg)
 
 	// Call provider (no tools needed for title generation)
-	response, _, err := prov.SendMessages([]llm.Message{
+	response, _, _, err := prov.SendMessages([]llm.Message{
 		{Role: "user", Content: prompt},
 	}, nil)
 

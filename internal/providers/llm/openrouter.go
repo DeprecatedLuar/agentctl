@@ -35,5 +35,11 @@ func NewOpenRouterProvider(cfg *config.AgentConfig, agentFolder, userFolder stri
 		logger:       logger,
 		userFolder:   userFolder,
 		debugEnabled: recordExchanges && cfg.Agent.IsDebugMode(),
+
+		// OpenRouter's Chat Completions extension is the only path in this
+		// codebase that can round-trip reasoning_details (see provider.go).
+		supportsReasoning: true,
+		reasoningEnabled:  cfg.Advanced.ReasoningEnabled(),
+		reasoningEffort:   cfg.Advanced.ReasoningEffort,
 	}, nil
 }

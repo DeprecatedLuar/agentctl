@@ -28,6 +28,18 @@ const (
 	envOpenAI     = "OPENAI_API_KEY"
 	envOpenRouter = "OPENROUTER_API_KEY"
 	envTelegram   = "TELEGRAM_BOT_TOKEN"
+
+	// Reasoning modes ([advanced] reasoning)
+	ReasoningNone  = "none"
+	ReasoningTools = "tools"
+	ReasoningAll   = "all" // reserved: aliases to ReasoningTools until user-facing display exists
+
+	// Valid reasoning_effort values (OpenRouter/Anthropic/Gemini/OpenAI o-series)
+	effortMinimal = "minimal"
+	effortLow     = "low"
+	effortMedium  = "medium"
+	effortHigh    = "high"
+	effortMax     = "max"
 )
 
 // ValidationIssueType represents the severity of a validation issue
@@ -61,6 +73,7 @@ type AgentConfig struct {
 	Access      AccessConfig      `toml:"access"`
 	Memory      MemoryConfig      `toml:"memory"`
 	Audio       *AudioConfig      `toml:"audio"`       // Optional
+	Advanced    AdvancedConfig    `toml:"advanced"`    // Optional
 	Environment map[string]string `toml:"environment"` // Optional
 }
 
@@ -102,6 +115,31 @@ func (m MemoryConfig) HistoryEnabled() bool {
 type AudioConfig struct {
 	Provider string `toml:"provider"` // "whisper" or http/https URL
 	Model    string `toml:"model"`
+}
+
+type AdvancedConfig struct {
+	Reasoning       string `toml:"reasoning"`        // none | tools | all (all reserved, aliases to tools)
+	ReasoningEffort string `toml:"reasoning_effort"` // minimal | low | medium | high | max
+}
+
+// ReasoningMode normalizes the configured reasoning mode: empty defaults to
+// ReasoningTools (on by default), and the reserved "all" value aliases to
+// ReasoningTools until user-facing reasoning display exists.
+func (a AdvancedConfig) ReasoningMode() string {
+	switch a.Reasoning {
+	case "", ReasoningTools, ReasoningAll:
+		return ReasoningTools
+	case ReasoningNone:
+		return ReasoningNone
+	default:
+		return a.Reasoning // invalid value surfaced by LoadAgent validation
+	}
+}
+
+// ReasoningEnabled reports whether reasoning should be requested from the
+// provider and preserved across tool-call turns.
+func (a AdvancedConfig) ReasoningEnabled() bool {
+	return a.ReasoningMode() == ReasoningTools
 }
 
 type AccessConfig struct {
@@ -187,6 +225,24 @@ func LoadAgent(agentPath string) (*AgentConfig, []ValidationIssue) {
 		issues = append(issues, ValidationIssue{
 			Type:    IssueError,
 			Message: fmt.Sprintf("%s: model field is required", agentConfigFile),
+		})
+	}
+
+	// Validate [advanced] reasoning settings
+	switch cfg.Advanced.Reasoning {
+	case "", ReasoningNone, ReasoningTools, ReasoningAll:
+	default:
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("%s: [advanced] reasoning must be 'none', 'tools', or 'all' (got %q)", agentConfigFile, cfg.Advanced.Reasoning),
+		})
+	}
+	switch cfg.Advanced.ReasoningEffort {
+	case "", effortMinimal, effortLow, effortMedium, effortHigh, effortMax:
+	default:
+		issues = append(issues, ValidationIssue{
+			Type:    IssueError,
+			Message: fmt.Sprintf("%s: [advanced] reasoning_effort must be one of minimal, low, medium, high, max (got %q)", agentConfigFile, cfg.Advanced.ReasoningEffort),
 		})
 	}
 

@@ -31,6 +31,13 @@ const (
 type Message struct {
 	Role    string
 	Content string
+
+	// ReasoningDetails is the raw "reasoning_details" JSON array a provider
+	// returned for this assistant turn. Stored verbatim and echoed back
+	// unmodified on the next request — never synthesized or parsed. Only
+	// ever set on Role == RoleAssistant messages returned by a provider that
+	// supports reasoning preservation (see baseProvider.supportsReasoning).
+	ReasoningDetails json.RawMessage
 }
 
 // ToolCall represents a tool invocation from the AI
@@ -42,9 +49,13 @@ type ToolCall struct {
 
 // Provider handles communication with AI providers
 type Provider interface {
-	// SendMessages sends messages and returns the assistant's response
-	// If tool calls are requested, returns them alongside the response
-	SendMessages(messages []Message, tools []config.ToolConfig) (response string, toolCalls []ToolCall, err error)
+	// SendMessages sends messages and returns the assistant's response.
+	// If tool calls are requested, returns them alongside the response.
+	// reasoningDetails is the raw "reasoning_details" payload for this turn
+	// (nil if the provider/model didn't return one) — callers should store it
+	// verbatim on the resulting assistant Message so it can be echoed back on
+	// the next call, never parsed or modified.
+	SendMessages(messages []Message, tools []config.ToolConfig) (response string, toolCalls []ToolCall, reasoningDetails json.RawMessage, err error)
 }
 
 // baseProvider holds the state and call logic shared by all Provider implementations.
@@ -56,6 +67,14 @@ type baseProvider struct {
 	logger       *slog.Logger
 	userFolder   string
 	debugEnabled bool
+
+	// Reasoning preservation ([advanced] reasoning/reasoning_effort). Only
+	// OpenRouter's Chat Completions extension supports round-tripping
+	// reasoning_details today (see NewOpenRouterProvider) — every other
+	// provider leaves supportsReasoning false, making this a no-op.
+	supportsReasoning bool
+	reasoningEnabled  bool
+	reasoningEffort   string
 }
 
 // buildClient constructs a shared openai.Client with the given auth/base-URL options.
@@ -69,7 +88,7 @@ func buildClient(apiKey, baseURL string) openai.Client {
 
 // SendMessages implements Provider using the shared call sequence. All three
 // concrete providers (OpenAI, OpenRouter, Generic) delegate here.
-func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfig) (string, []ToolCall, error) {
+func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfig) (string, []ToolCall, json.RawMessage, error) {
 	chatMessages := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 	for i, msg := range messages {
 		switch msg.Role {
@@ -78,9 +97,9 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 		case RoleUser:
 			chatMessages[i] = openai.UserMessage(msg.Content)
 		case RoleAssistant:
-			chatMessages[i] = openai.AssistantMessage(msg.Content)
+			chatMessages[i] = p.assistantMessage(msg)
 		default:
-			return "", nil, fmt.Errorf("unknown role: %s", msg.Role)
+			return "", nil, nil, fmt.Errorf("unknown role: %s", msg.Role)
 		}
 	}
 
@@ -100,6 +119,15 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 	if len(chatTools) > 0 {
 		params.Tools = chatTools
 	}
+	if p.supportsReasoning && p.reasoningEnabled {
+		reasoningParam := map[string]any{}
+		if p.reasoningEffort != "" {
+			reasoningParam["effort"] = p.reasoningEffort
+		} else {
+			reasoningParam["enabled"] = true
+		}
+		params.SetExtraFields(map[string]any{"reasoning": reasoningParam})
+	}
 
 	if p.logger != nil {
 		p.logger.Debug("api call", "provider", p.providerName, "model", p.model)
@@ -107,7 +135,11 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 
 	debugMessages := make([]debug.Message, len(messages))
 	for i, msg := range messages {
-		debugMessages[i] = debug.Message{Role: msg.Role, Content: msg.Content}
+		debugMessages[i] = debug.Message{
+			Role:         msg.Role,
+			Content:      msg.Content,
+			HadReasoning: len(msg.ReasoningDetails) > 0,
+		}
 	}
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
@@ -116,18 +148,25 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 			p.logger.Error("api error", "provider", p.providerName, "error", err)
 		}
 		debug.RecordExchange(p.logger, p.userFolder, debugMessages, tools, p.providerName, p.model, debug.ResponseData{}, err, p.debugEnabled)
-		return "", nil, fmt.Errorf("%s api error: %w", p.providerName, err)
+		return "", nil, nil, fmt.Errorf("%s api error: %w", p.providerName, err)
 	}
 
 	if len(resp.Choices) == 0 {
 		noChoicesErr := fmt.Errorf("no response from api")
 		debug.RecordExchange(p.logger, p.userFolder, debugMessages, tools, p.providerName, p.model, debug.ResponseData{}, noChoicesErr, p.debugEnabled)
-		return "", nil, noChoicesErr
+		return "", nil, nil, noChoicesErr
 	}
 
 	choice := resp.Choices[0]
 	content := choice.Message.Content
 	reasoning := extractReasoning(choice.Message)
+	reasoningDetails := extractReasoningDetails(choice.Message)
+
+	if p.logger != nil {
+		if n := reasoningBlockCount(reasoningDetails); n > 0 {
+			p.logger.Debug("reasoning preserved", "blocks", n)
+		}
+	}
 
 	var toolCalls []ToolCall
 	if len(choice.Message.ToolCalls) > 0 {
@@ -137,7 +176,7 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 				parseErr := fmt.Errorf("failed to parse tool arguments: %w", err)
 				debug.RecordExchange(p.logger, p.userFolder, debugMessages, tools, p.providerName, p.model, debug.ResponseData{}, parseErr, p.debugEnabled)
-				return "", nil, parseErr
+				return "", nil, nil, parseErr
 			}
 			toolCalls[i] = ToolCall{
 				ID:   tc.ID,
@@ -154,7 +193,22 @@ func (p *baseProvider) SendMessages(messages []Message, tools []config.ToolConfi
 	debug.RecordExchange(p.logger, p.userFolder, debugMessages, tools, p.providerName, p.model,
 		debug.ResponseData{Content: content, Reasoning: reasoning, ToolCalls: debugToolCalls}, nil, p.debugEnabled)
 
-	return content, toolCalls, nil
+	return content, toolCalls, reasoningDetails, nil
+}
+
+// assistantMessage converts an outbound assistant Message into an OpenAI chat
+// param, attaching reasoning_details verbatim via SetExtraFields when present
+// (see Message.ReasoningDetails). The typed openai.AssistantMessage helper has
+// no field for reasoning_details since it's a provider extension, not part of
+// the standard schema.
+func (p *baseProvider) assistantMessage(msg Message) openai.ChatCompletionMessageParamUnion {
+	param := openai.AssistantMessage(msg.Content)
+	if p.supportsReasoning && len(msg.ReasoningDetails) > 0 {
+		if signed := stripUnsignedReasoning(msg.ReasoningDetails); len(signed) > 0 {
+			param.OfAssistant.SetExtraFields(map[string]any{"reasoning_details": json.RawMessage(signed)})
+		}
+	}
+	return param
 }
 
 // extractReasoning pulls the provider-extension "reasoning" field (e.g. OpenRouter's
@@ -171,6 +225,74 @@ func extractReasoning(msg openai.ChatCompletionMessage) string {
 		return ""
 	}
 	return reasoning
+}
+
+// reasoningBlockCount reports how many entries a reasoning_details payload
+// carries, for the "reasoning preserved: N blocks" debug log. Returns 0 for
+// nil/malformed input rather than erroring — this is observability only.
+func reasoningBlockCount(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return 0
+	}
+	return len(entries)
+}
+
+// extractReasoningDetails pulls the raw "reasoning_details" array out of a chat
+// completion message's extension fields (OpenRouter's structured reasoning
+// payload). Returned verbatim, unparsed — callers must never modify it, only
+// store and echo it back (see Message.ReasoningDetails). Returns nil if the
+// provider didn't send one.
+func extractReasoningDetails(msg openai.ChatCompletionMessage) json.RawMessage {
+	field, ok := msg.JSON.ExtraFields["reasoning_details"]
+	if !ok {
+		return nil
+	}
+	return json.RawMessage(field.Raw())
+}
+
+// reasoningDetail mirrors just the fields of an OpenRouter reasoning_details
+// entry needed to validate it's safe to resend (see stripUnsignedReasoning).
+type reasoningDetail struct {
+	Type      string `json:"type"`
+	Signature string `json:"signature"`
+}
+
+// stripUnsignedReasoning drops any "reasoning.text" entries missing their
+// signature before a reasoning_details payload is echoed back to the
+// provider. An unsigned text block will be rejected by signature-validating
+// providers (e.g. Anthropic-backed models via OpenRouter) with an "invalid
+// signature" error; other entry types (encrypted, summary) pass through
+// unchanged since they carry no signature to validate.
+func stripUnsignedReasoning(raw json.RawMessage) json.RawMessage {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil
+	}
+
+	kept := make([]json.RawMessage, 0, len(entries))
+	for _, entry := range entries {
+		var d reasoningDetail
+		if err := json.Unmarshal(entry, &d); err != nil {
+			continue // malformed entry, drop rather than risk a rejected request
+		}
+		if d.Type == "reasoning.text" && d.Signature == "" {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+
+	if len(kept) == 0 {
+		return nil
+	}
+	out, err := json.Marshal(kept)
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 // convertTool converts a tool config to OpenAI-compatible schema format.

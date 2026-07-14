@@ -95,7 +95,7 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 			lg.Info("request", "kind", logger.KindCall, "messages", len(messages), "tools", len(tools))
 		}
 
-		response, toolCalls, err := prov.SendMessages(messages, tools)
+		response, toolCalls, reasoningDetails, err := prov.SendMessages(messages, tools)
 		if err != nil {
 			if lg != nil {
 				lg.Error("provider error", "error", err)
@@ -130,10 +130,14 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 			onPartial(response)
 		}
 
-		// Add assistant message with tool calls to history
+		// Add assistant message with tool calls to history. reasoningDetails
+		// (raw, verbatim) travels with it so the next iteration's request can
+		// echo it back — the provider layer no-ops this for models/providers
+		// that never returned any (see baseProvider.supportsReasoning).
 		messages = append(messages, Message{
-			Role:    roleAssistant,
-			Content: response,
+			Role:             roleAssistant,
+			Content:          response,
+			ReasoningDetails: reasoningDetails,
 		})
 
 		// Execute all tool calls and collect results

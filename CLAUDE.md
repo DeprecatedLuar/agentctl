@@ -82,6 +82,10 @@ max_messages = 100  # Keep last N messages (0=no persistence)
 [audio]  # Optional
 provider = "whisper"
 model = "whisper-1"
+
+[advanced]
+reasoning = "tools"  # none | tools | all — default "tools"
+reasoning_effort = "medium"  # minimal | low | medium | high | max
 ```
 
 **prompt file:**
@@ -102,12 +106,14 @@ type = "string"
 required = true
 enabled = true  # false=hide from AI
 return = ""     # Override with literal/directive (auto-hides from AI)
+env = ""        # Override injected env var name, replacing $TOOL_VAR (e.g. env = "GH_TOKEN" -> $GH_TOKEN)
 ```
 - Commands run from tool directory (not agent root)
 - `tools = []` recursively finds all .toml (including subdirs)
 - `tools = ["name"]` only loads top-level tools/ (no subdirs)
 - Parameters injected as both `{{var}}` (inline) and `$TOOL_VAR` (env) for safe multiline handling
 - Need system context (user, session, etc.)? Declare a hidden param with `return = "{{$var}}"` (still shows up as `$TOOL_VAR`) — no ambient injection, stays declarative
+- Need the exact env var name a wrapped script/CLI expects (e.g. `GH_TOKEN`)? Set `env = "GH_TOKEN"` on the param — replaces the `$TOOL_VAR` binding with the given name (must be a valid shell identifier, validated at load)
 
 **.data/contacts.toml:**
 ```toml

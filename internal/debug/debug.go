@@ -43,6 +43,11 @@ type ExchangeRecord struct {
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	// HadReasoning marks assistant messages carrying a preserved
+	// reasoning_details payload — visible proof, alongside the response's
+	// own Reasoning field, that reasoning round-tripped across a tool-call
+	// turn rather than being dropped (see [advanced] reasoning).
+	HadReasoning bool `json:"had_reasoning,omitempty"`
 }
 
 // ToolDefinition represents a tool with its parameters
