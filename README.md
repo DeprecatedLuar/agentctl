@@ -48,7 +48,7 @@ agentctl chat "hello"
 | Command | Description | Example |
 |---------|-------------|---------|
 | `init [path]` | Create agent folder with templates | `agentctl init my-agent` |
-| `serve [path]` | Start daemon with configured gateways (`run`/`up` still work as aliases) | `agentctl serve my-agent` |
+| `serve [path]` | Start daemon with configured gateways + routine scheduler (`run`/`up` still work as aliases) | `agentctl serve my-agent` |
 | `chat` | Send message, one-shot and daemonless | `agentctl chat -m "analyze logs" -a my-agent` |
 | `inject [role]` | Inject turn into session without running agent | `agentctl inject assistant -m "response" --session 20260614_abc` |
 | `deliver <channel>` | Deliver literal text to channels without running the agent | `agentctl deliver telegram -m "Reminder: standup" --inject` |
@@ -110,6 +110,8 @@ my-agent/
 │   └── chat_template       # Message template with sections (chat_template.md also accepted)
 ├── tools/                  # Tool definitions (*.toml)
 │   └── example.toml        # Example tool (excluded from auto-load)
+├── routines/               # Scheduled commands (*.toml), fired by the serve daemon
+│   └── example.toml        # Syntax reference (excluded from scheduling)
 ├── .prerun.sh              # Optional: runs before each agent execution (non-fatal)
 ├── .env                    # API keys (OPENAI_API_KEY, OPENROUTER_API_KEY, TELEGRAM_BOT_TOKEN)
 └── .data/                  # Runtime data (auto-created)
@@ -400,6 +402,65 @@ type = "string"
 enabled = false                    # Hidden from AI entirely
 return = "{{file:.secrets/key}}"   # Loaded from file at execution time
 ```
+
+## Routines (Scheduled Commands)
+
+Routines are TOML files in the `routines/` directory. Where a **tool** fires when the AI decides to call it, a **routine** fires on a **schedule** — no AI involvement, no arguments from the model, no reply fed back into a conversation. The command runs fire-and-forget and its output is only logged. Use routines for recurring jobs: a proactive daily check-in (where the command is itself an `agentctl deliver`/`agentctl chat` back into a gateway), a periodic scrape, a nightly backup or cleanup.
+
+**How they run:**
+- The scheduler lives **inside the `serve` daemon** — there is no system crontab. A routine only ever fires while its owning agent's daemon is running.
+- Checked once per minute, so schedules resolve at minute granularity.
+- No catch-up: an occurrence whose time already passed when the daemon started is not back-fired.
+- Overlap is allowed — a long-running routine won't block its next fire.
+- **Hot-reload:** editing/adding/removing a `routines/*.toml` is picked up live. But if the agent had **no `routines/` folder at all** when the daemon started, creating one requires a `serve` restart (the folder is checked once at startup). `init` scaffolds the `routines/` folder up front, so this only bites if you delete it.
+
+`init` drops a `routines/example.toml` as a fill-in syntax reference — copy or rename it to create a real routine. Like `tools/example.toml`, a file named `example.toml` is skipped by the scheduler, so the reference never fires.
+
+**Basic example (`routines/standup.toml`):**
+
+```toml
+command = "agentctl deliver telegram -m 'Standup in 5 minutes' -a ."
+description = "Weekday standup reminder"   # optional, informational only
+enabled = true                             # optional, default true
+
+[schedule]
+every = "mon,tue,wed,thu,fri"
+time = "08:55"
+```
+
+**Schedule field (`[schedule]` is required — pick exactly one shape):**
+
+| Shape | Example | Meaning |
+|-------|---------|---------|
+| Weekday list | `every = "mon,wed,fri"` + `time = "09:00"` | Those weekdays at HH:MM |
+| Day-of-month list | `every = "1,15"` + `time = "09:00"` | Those days (1–31) at HH:MM |
+| Every N days | `every = "3d"` + `time = "09:00"` | Every 3rd day at HH:MM |
+| Every N hours | `every = "6h"` | Every 6 hours (**no `time`**) |
+| RRULE | `rrule = "FREQ=WEEKLY;BYDAY=MO,WE"` | RFC-5545 recurrence rule |
+
+- `time` is 24-hour `HH:MM`. **Required** for weekday / day-of-month / `Nd`; **not allowed** with `Nh`; unused with `rrule`.
+- `every` tokens must all be the **same category** — mixing (e.g. `"mon,3d"`) is a hard error. This is deliberate: it avoids cron's ambiguous "OR" semantics.
+- `rrule` is mutually exclusive with `every`/`time`.
+- A malformed routine is a blocking error at daemon startup, and a logged (non-fatal) warning on live reload.
+
+**Parameters** work like tool parameters — same table syntax — but since no AI supplies arguments, they're only useful with a `return` override. Resolved values inject inline as `{{param}}` and as `$ROUTINE_<PARAM>` environment variables (note the `ROUTINE_` prefix, not `TOOL_`):
+
+```toml
+command = "./scripts/report.sh"
+description = "Daily report"
+
+[schedule]
+every = "1d"
+time = "07:00"
+
+[today]
+return = "{{exec:date +%F}}"   # exposed to the script as $ROUTINE_TODAY and {{today}}
+```
+
+Available `{{$...}}` context in a routine is limited to `{{$agent}}`, `{{$agentpath}}`, and time variables (`{{$timestamp}}`, `{{$date}}`, `{{$now}}`) — a routine has no user/session, so `{{$user}}`/`{{$session}}` are not available. The agent's `[environment]` values are injected the same way as for tools. The command runs from the routine file's own directory.
+
+> [!NOTE]
+> There is no `toolrun` equivalent for routines. To test one, run `agentctl serve <agent> --debug`, temporarily set `time` to a minute or two in the future (or a short `rrule`), and watch `.data/logs/` for the fire. Restore the real schedule afterward.
 
 ## Gateways
 

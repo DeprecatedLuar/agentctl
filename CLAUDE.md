@@ -40,6 +40,7 @@ Gateways (cli/, telegram/) → ports.go (MessageHandler)
 - `internal/gateways/` - cli/ + telegram/ packages, dispatch.go
 - `internal/syscommands/` - /new, /sessions, /sessions attach
 - `internal/resolution/` - Two-phase: directives ({{file:}}, {{exec:}}) → variables ({{$var}})
+- `internal/routines/` - In-process scheduler (scheduler.go): 60s tick + fsnotify hot-reload, fires routines/*.toml via agent.ExecuteRoutine
 - `internal/commands/` - init.go, serve.go, chat.go, inject.go
 
 **Agent folder:**
@@ -48,6 +49,7 @@ Gateways (cli/, telegram/) → ports.go (MessageHandler)
 config/agent.toml       # [agent], [access], [memory], [audio]
 prompts/chat_template   # [>role] static, [>>role] input (or chat_template.md fallback)
 tools/*.toml            # Command + params (auto-discover or explicit)
+routines/*.toml         # Scheduled commands, fired by the serve daemon (no AI); example.toml skipped
 .data/
   contacts.toml         # [[identity]] + [[contact]]
   sessions/{userID}/{sessionID}.jsonl
@@ -114,6 +116,29 @@ env = ""        # Override injected env var name, replacing $TOOL_VAR (e.g. env 
 - Parameters injected as both `{{var}}` (inline) and `$TOOL_VAR` (env) for safe multiline handling
 - Need system context (user, session, etc.)? Declare a hidden param with `return = "{{$var}}"` (still shows up as `$TOOL_VAR`) — no ambient injection, stays declarative
 - Need the exact env var name a wrapped script/CLI expects (e.g. `GH_TOKEN`)? Set `env = "GH_TOKEN"` on the param — replaces the `$TOOL_VAR` binding with the given name (must be a valid shell identifier, validated at load)
+
+**routines/*.toml:** (scheduled, AI-less counterpart to tools — parsed in `internal/config/routine.go`, fired by `internal/routines/scheduler.go` inside `serve`)
+```toml
+command = "agentctl deliver telegram -m 'Standup' -a ."   # required
+description = "Weekday standup"   # optional, informational only (no AI sees routines)
+enabled = true                    # optional, default true
+
+[schedule]                        # required — exactly one shape (mode detected from `every`'s token type):
+# every = "mon,wed,fri" + time = "09:00"   # ModeWeekday
+# every = "1,15"        + time = "09:00"   # ModeDayOfMonth (1-31)
+# every = "3d"          + time = "09:00"   # ModeDayInterval
+# every = "6h"                             # ModeHourInterval (time forbidden)
+# rrule = "FREQ=WEEKLY;BYDAY=MO,WE"        # ModeRRule (mutually exclusive with every/time)
+
+[today]                           # params like tools, but populated only by `return` (no AI args)
+return = "{{exec:date +%F}}"       # injected as {{today}} and $ROUTINE_TODAY (note ROUTINE_ prefix)
+```
+- `every` tokens must be one category — mixing (`"mon,3d"`) is a hard error (avoids cron OR-ambiguity)
+- Scheduler: 60s tick, no crontab, no boot catch-up, overlap allowed; fires only while daemon runs
+- Hot-reload via fsnotify on `routines/` dir, but the dir must exist at daemon startup (checked once)
+- Context in `{{$...}}`: `{{$agent}}`, `{{$agentpath}}`, time vars only — no `{{$user}}`/`{{$session}}` (no session). Commands run from the routine file's own dir; `[environment]` injected like tools
+- No `toolrun` equivalent — test via `serve --debug` + a near-future `time`, watch `.data/logs/`
+- `init` scaffolds `routines/example.toml` (embedded `templates.RoutineExample`) as a fill-in reference; skipped by the shared `example.toml` exclusion in `walkToolsDir`, same as `tools/example.toml`
 
 **.data/contacts.toml:**
 ```toml
@@ -191,6 +216,7 @@ Runs before each agent execution:
 - **No CLI framework** - Stdlib arg parsing, gohelp-luar for docs only
 - **Modular providers** - One file per provider (openai.go, openrouter.go, generic.go)
 - **Shell-based tools** - `sh -c` with {{var}} substitution
+- **Routines in-process** - Scheduler lives in `serve` daemon, no system crontab; typed `every` shapes over raw cron to dodge OR-ambiguity
 - **JSONL not SQLite** - Append-only, easier debugging
 - **Runtime loading** - Hot-reload on every request
 - **Dual migration** - Startup bulk + lazy per-message

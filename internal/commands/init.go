@@ -16,16 +16,18 @@ const (
 	configDir   = "config"
 	promptsDir  = "prompts"
 	toolsDir    = "tools"
+	routinesDir = "routines"
 	initDataDir = ".data"
 
 	// File names
-	initAgentConfig   = "agent.toml"
-	contactsFile      = "contacts.toml"
-	defaultPromptFile = "chat_template"
-	systemPromptFile  = "system.md"
-	initEnvFile       = ".env"
-	initGitignoreFile = ".gitignore"
-	toolExampleFile   = "example.toml"
+	initAgentConfig    = "agent.toml"
+	contactsFile       = "contacts.toml"
+	defaultPromptFile  = "chat_template"
+	systemPromptFile   = "system.md"
+	initEnvFile        = ".env"
+	initGitignoreFile  = ".gitignore"
+	toolExampleFile    = "example.toml"
+	routineExampleFile = "example.toml"
 
 	// File permissions
 	dirPermissions  = 0755
@@ -57,7 +59,7 @@ func HandleInit(args []string) error {
 	}
 
 	// Create subdirectories
-	dirs := []string{configDir, promptsDir, toolsDir, initDataDir}
+	dirs := []string{configDir, promptsDir, toolsDir, routinesDir, initDataDir}
 	for _, dir := range dirs {
 		dirPath := filepath.Join(absPath, dir)
 		if err := os.MkdirAll(dirPath, dirPermissions); err != nil {
@@ -67,13 +69,14 @@ func HandleInit(args []string) error {
 
 	// Write template files
 	files := map[string]string{
-		filepath.Join(configDir, initAgentConfig):    templates.AgentToml,
-		filepath.Join(initDataDir, contactsFile):     substituteUsername(templates.ContactsToml, username),
-		filepath.Join(promptsDir, defaultPromptFile): templates.Prompt,
-		filepath.Join(promptsDir, systemPromptFile):  templates.SystemMd,
-		filepath.Join(toolsDir, toolExampleFile):     templates.ToolExample,
-		initEnvFile:                                  templates.EnvTemplate,
-		initGitignoreFile:                            templates.Gitignore,
+		filepath.Join(configDir, initAgentConfig):      templates.AgentToml,
+		filepath.Join(initDataDir, contactsFile):       substituteUsername(templates.ContactsToml, username),
+		filepath.Join(promptsDir, defaultPromptFile):   templates.Prompt,
+		filepath.Join(promptsDir, systemPromptFile):    templates.SystemMd,
+		filepath.Join(toolsDir, toolExampleFile):       templates.ToolExample,
+		filepath.Join(routinesDir, routineExampleFile): templates.RoutineExample,
+		initEnvFile:       templates.EnvTemplate,
+		initGitignoreFile: templates.Gitignore,
 	}
 
 	var createdFiles, skippedFiles []string

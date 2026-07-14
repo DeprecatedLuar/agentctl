@@ -17,6 +17,9 @@ var SystemMd string
 //go:embed files/tool-example.toml
 var ToolExample string
 
+//go:embed files/routine-example.toml
+var RoutineExample string
+
 //go:embed files/env.template
 var EnvTemplate string
 

@@ -44,10 +44,14 @@ type Scheduler struct {
 
 // Start checks whether <agentPath>/routines/ exists and is non-empty; if so,
 // compiles the schedule set and starts the ticker + fsnotify goroutines,
-// both tied to ctx. If not, it's a no-op - zero background cost for the
-// common case of an agent with no routines. Adding a routines/ folder to an
-// already-running daemon requires a restart to pick up (checked once here at
-// startup, not re-checked).
+// both tied to ctx. An empty (or absent) routines/ dir is a no-op - zero
+// background cost. Note `init` scaffolds a routines/example.toml, so init'd
+// agents are non-empty and DO start the scheduler even before any real
+// routine exists; the example is excluded from scheduling (walkToolsDir) but
+// its presence keeps watchLoop live, so a first real routine hot-reloads
+// without a restart. Adding a routines/ folder to an already-running daemon
+// with no routines/ dir at startup still requires a restart (checked once
+// here, not re-checked).
 //
 // configEnv is the agent's resolved [environment] map, passed through to
 // shell.Execute exactly like tools use it.
