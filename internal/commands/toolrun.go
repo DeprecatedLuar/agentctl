@@ -171,7 +171,7 @@ func HandleToolRun(args []string) error {
 	result := agent.ExecuteTool(&tool, params, absPath, ctx, logger, false, true)
 
 	// Print result
-	fmt.Print(result)
+	fmt.Print(result.Output)
 
 	return nil
 }

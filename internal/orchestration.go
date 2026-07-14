@@ -179,15 +179,21 @@ func (o *Orchestrator) handleMessage(userID, sessionID, gateway, content string,
 		Content:   content,
 	}
 
-	// Build a callback to deliver intermediate narration turns (text
-	// alongside tool calls) back to the originating gateway/contact as
-	// soon as they happen, instead of only the final no-tool-call reply.
+	// Build callbacks to deliver intermediate narration turns and tool-use
+	// reports back to the originating gateway/contact as soon as they
+	// happen, instead of only the final no-tool-call reply.
 	var onPartial func(string)
+	var onToolReport func(string)
 	if o.Dispatcher != nil {
 		if platformID, perr := session.LookupPlatformID(o.AgentFolder, userID, gateway); perr == nil {
 			onPartial = func(text string) {
 				if err := o.Dispatcher.Send(gateway, platformID, text); err != nil {
 					o.Logger.Warn("partial delivery failed", "gateway", gateway, "error", err)
+				}
+			}
+			onToolReport = func(text string) {
+				if err := o.Dispatcher.Send(gateway, platformID, text); err != nil {
+					o.Logger.Warn("tool report delivery failed", "gateway", gateway, "error", err)
 				}
 			}
 		} else {
@@ -196,7 +202,7 @@ func (o *Orchestrator) handleMessage(userID, sessionID, gateway, content string,
 	}
 
 	// Call agent
-	response, err := agent.Run(agentCfg, tools, prompt, history, input, o.AgentFolder, o.Logger, o.Verbose, o.Debug, onPartial)
+	response, err := agent.Run(agentCfg, tools, prompt, history, input, o.AgentFolder, o.Logger, o.Verbose, o.Debug, onPartial, onToolReport)
 	if err != nil {
 		o.Logger.Error("agent execution failed", "error", err)
 		return "", err

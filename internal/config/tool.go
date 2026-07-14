@@ -20,6 +20,7 @@ const (
 	// Reserved TOML keys (not parameters)
 	keyCommand     = "command"
 	keyDescription = "description"
+	keyReport      = "report"
 
 	// Default parameter type
 	defaultParameterType = "string"
@@ -32,6 +33,7 @@ type ToolConfig struct {
 	Name        string
 	Command     string               `toml:"command"`
 	Description string               `toml:"description"`
+	Report      string               `toml:"report"` // Template emitted to the originating interface when the tool runs
 	Parameters  map[string]Parameter `toml:",inline"`
 	Path        string               // Absolute path to the .toml file
 }
@@ -205,6 +207,19 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 	if desc, ok := raw[keyDescription].(string); ok {
 		tool.Description = desc
 	}
+	if report, ok := raw[keyReport].(string); ok {
+		tool.Report = report
+
+		// Validate directive syntax in report field (syntax only, no execution)
+		if report != "" {
+			if err := resolution.ValidateSyntax(report); err != nil {
+				issues = append(issues, ValidationIssue{
+					Type:    IssueError,
+					Message: fmt.Sprintf("tools/%s: report field: %v", relPath, err),
+				})
+			}
+		}
+	}
 
 	// Validation
 	if tool.Command == "" {
@@ -216,7 +231,7 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 
 	// Extract parameters (all other sections are parameters)
 	for key, value := range raw {
-		if key == keyCommand || key == keyDescription {
+		if key == keyCommand || key == keyDescription || key == keyReport {
 			continue
 		}
 

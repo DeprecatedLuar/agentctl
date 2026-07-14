@@ -101,6 +101,7 @@ reasoning_effort = "medium"  # minimal | low | medium | high | max
 ```toml
 command = "curl wttr.in/{{location}}"
 description = "Get weather"
+report = ""     # Sent to the originating interface when the tool runs (empty=silent)
 
 [location]
 description = "City name"
@@ -116,6 +117,7 @@ env = ""        # Override injected env var name, replacing $TOOL_VAR (e.g. env 
 - Parameters injected as both `{{var}}` (inline) and `$TOOL_VAR` (env) for safe multiline handling
 - Need system context (user, session, etc.)? Declare a hidden param with `return = "{{$var}}"` (still shows up as `$TOOL_VAR`) — no ambient injection, stays declarative
 - Need the exact env var name a wrapped script/CLI expects (e.g. `GH_TOKEN`)? Set `env = "GH_TOKEN"` on the param — replaces the `$TOOL_VAR` binding with the given name (must be a valid shell identifier, validated at load)
+- `report`: opt-in per-tool line delivered to the originating interface (Telegram/etc.) when the tool runs, so tool usage is visible without reading host logs. Family prefix auto-derived from the tool's folder (`tools/memory/read.toml` -> `memory:`); tools directly in `tools/` emit the bare report. Resolves `{{name}}` (resolved param value, honours return-overrides), `{{$command}}` (fully-resolved shell command), `{{$result}}` (truncated stdout), plus standard directives/system vars. `{{$command}}`/`{{$result}}` are local tokens substituted after `resolution.Process` runs — never part of the global sysvar namespace. Non-fatal: a broken template logs a warning and is skipped.
 
 **routines/*.toml:** (scheduled, AI-less counterpart to tools — parsed in `internal/config/routine.go`, fired by `internal/routines/scheduler.go` inside `serve`)
 ```toml

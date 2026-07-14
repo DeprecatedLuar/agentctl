@@ -11,6 +11,7 @@ func ToolsPage() *gohelp.Page {
 		).
 		Section("Optional Fields",
 			gohelp.Item("description", "Tool description for the AI"),
+			gohelp.Item("report", "Template sent to the originating interface when the tool runs (empty = silent)", "report = \"fetched weather for {{city}}\""),
 			gohelp.Item("[paramName]", "Parameter sections (not nested under [parameters]!)"),
 		).
 		Section("Parameter Fields",
@@ -30,5 +31,12 @@ func ToolsPage() *gohelp.Page {
 			gohelp.Item("TOOL_<PARAM>", "All parameters injected as TOOL_* env vars (uppercase)", "$TOOL_USER, $TOOL_FILE, $TOOL_MESSAGE"),
 			gohelp.Item("AGENT_PATH", "Agent folder absolute path (always available)"),
 		).
-		Text("Tools are executed via 'sh -c' with {{var}} substitution from AI tool calls. Additionally, all resolved parameters are injected as TOOL_<PARAMNAME> environment variables (uppercase), enabling safe handling of multiline values and special characters. Files named example.toml are ignored during auto-discovery.")
+		Section("Special Variables in Report Fields",
+			gohelp.Item("{{name}}", "Resolved value of parameter 'name' (honours return overrides)", "report = \"looked up {{city}}\""),
+			gohelp.Item("{{$command}}", "Fully-resolved shell command sent to the tool", "report = \"ran: {{$command}}\""),
+			gohelp.Item("{{$result}}", "Tool stdout, truncated to a preview length", "report = \"got: {{$result}}\""),
+			gohelp.Item("{{file:path}}, {{exec:cmd}}, {{$user}} etc.", "Standard directives and system variables also resolve here"),
+		).
+		Text("Tools are executed via 'sh -c' with {{var}} substitution from AI tool calls. Additionally, all resolved parameters are injected as TOOL_<PARAMNAME> environment variables (uppercase), enabling safe handling of multiline values and special characters. Files named example.toml are ignored during auto-discovery.").
+		Text("If set, 'report' renders after the tool runs and is delivered to the interface the request came from (e.g. Telegram), so tool activity is visible without reading host logs. The family prefix is auto-derived from the tool's folder (tools/memory/read.toml -> \"memory:\"); tools directly under tools/ emit no prefix. Report resolution is non-fatal - a broken template logs a warning and is skipped.")
 }

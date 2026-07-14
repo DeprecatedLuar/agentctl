@@ -4,6 +4,7 @@ Read a memory file. Other memory files besides the one already loaded in
 context may exist — call memory_list first to see all available files,
 their descriptions, and char limits.
 """
+report = "read {{file}}"
 
 [user]
 type = "string"

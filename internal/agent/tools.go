@@ -22,10 +22,24 @@ const (
 
 	// Output preview length shown in the [TOOL] log line (full output shown under -v)
 	toolPreviewLen = 80
+
+	// Output preview length shown in a tool report's {{$result}} token
+	reportPreviewLen = 200
+
+	// Tools directly under tools/ (no subfolder) get no family prefix
+	topLevelToolsDir = "tools"
 )
 
+// ExecResult carries a tool's execution outcome for both the agentic loop
+// (tool-result message) and report resolution ({{$command}}/{{$result}}).
+type ExecResult struct {
+	Output        string            // stdout, or "exit N: stderr" on error
+	Command       string            // resolved command sent to shell
+	Substitutions map[string]string // resolved param values
+}
+
 // ExecuteTool runs a tool with the given arguments
-func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, runtimeCtx resolution.Context, lg *slog.Logger, verbose bool, debug bool) string {
+func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFolder string, runtimeCtx resolution.Context, lg *slog.Logger, verbose bool, debug bool) ExecResult {
 	// Build substitution map: Process return overrides with directive support
 	substitutions := make(map[string]string)
 
@@ -47,7 +61,7 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 			processedValue, err := resolution.Process(param.Return, runtimeCtx)
 			if err != nil {
 				// Directive processing failed - return formatted error (match tool error format)
-				return fmt.Sprintf(exitCodeFormat, 1, fmt.Sprintf("return directive failed for '%s': %v", paramName, err))
+				return ExecResult{Output: fmt.Sprintf(exitCodeFormat, 1, fmt.Sprintf("return directive failed for '%s': %v", paramName, err))}
 			}
 
 			// Handle {{$completion}} placeholder
@@ -130,7 +144,37 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 		}
 	}
 
-	return result
+	return ExecResult{Output: result, Command: cmd, Substitutions: substitutions}
+}
+
+// ResolveToolReport renders a tool's report template for delivery to the
+// originating interface. Returns "" if the tool has no report configured.
+// {{$command}} and {{$result}} are local tokens resolved after
+// resolution.Process runs - they never enter the global sysvar namespace.
+func ResolveToolReport(tool *config.ToolConfig, exec ExecResult, runtimeCtx resolution.Context) (string, error) {
+	if tool.Report == "" {
+		return "", nil
+	}
+
+	s, err := resolution.Process(tool.Report, runtimeCtx)
+	if err != nil {
+		return "", err
+	}
+
+	s = strings.ReplaceAll(s, "{{$command}}", exec.Command)
+	s = strings.ReplaceAll(s, "{{$result}}", truncate(exec.Output, reportPreviewLen))
+
+	for key, value := range exec.Substitutions {
+		placeholder := fmt.Sprintf(placeholderFormat, key)
+		s = strings.ReplaceAll(s, placeholder, value)
+	}
+
+	family := filepath.Base(filepath.Dir(tool.Path))
+	if family != "" && family != topLevelToolsDir {
+		s = family + ":" + s
+	}
+
+	return s, nil
 }
 
 // formatArgs renders resolved tool args as a stable, readable string for logging.

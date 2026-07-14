@@ -39,7 +39,7 @@ type Input struct {
 type Message = llm.Message
 
 // Run executes the agent with the given configuration and input
-func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, lg *slog.Logger, verbose bool, debug bool, onPartial func(text string)) (string, error) {
+func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.ParsedPrompt, history []Message, input Input, agentFolder string, lg *slog.Logger, verbose bool, debug bool, onPartial func(text string), onToolReport func(text string)) (string, error) {
 	// Create provider
 	userFolder := session.UserFolder(agentFolder, input.UserID)
 	prov, err := llm.NewProvider(cfg, agentFolder, userFolder, true, lg)
@@ -147,15 +147,24 @@ func Run(cfg *config.AgentConfig, tools []config.ToolConfig, prompt *config.Pars
 				return "", fmt.Errorf("unknown tool requested: %s", tc.Name)
 			}
 
-			result := ExecuteTool(tool, tc.Args, agentFolder, runtimeCtx, lg, verbose, debug)
+			exec := ExecuteTool(tool, tc.Args, agentFolder, runtimeCtx, lg, verbose, debug)
 
 			// Add tool result as a message
 			// OpenAI expects tool results as role="tool" with tool_call_id
 			// For simplicity, we'll format as a user message with context
 			messages = append(messages, Message{
 				Role:    roleUser,
-				Content: fmt.Sprintf(toolResultFormat, tc.Name, result),
+				Content: fmt.Sprintf(toolResultFormat, tc.Name, exec.Output),
 			})
+
+			report, err := ResolveToolReport(tool, exec, runtimeCtx)
+			if err != nil {
+				if lg != nil {
+					lg.Warn("tool report resolution failed", "tool", tc.Name, "error", err)
+				}
+			} else if report != "" && onToolReport != nil {
+				onToolReport(report)
+			}
 		}
 
 		// Loop continues - send messages with tool results
