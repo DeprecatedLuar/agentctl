@@ -147,18 +147,26 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 	return ExecResult{Output: result, Command: cmd, Substitutions: substitutions}
 }
 
+// ToolReport is a tool-use report split into its family and message parts,
+// so each gateway can render them in its own style (e.g. "[family] message"
+// vs "family: message") instead of receiving a pre-formatted string.
+type ToolReport struct {
+	Family  string // Tool's parent folder name, or the tool's own name for tools directly under tools/
+	Message string
+}
+
 // ResolveToolReport renders a tool's report template for delivery to the
-// originating interface. Returns "" if the tool has no report configured.
-// {{$command}} and {{$result}} are local tokens resolved after
+// originating interface. Returns a zero ToolReport if the tool has no report
+// configured. {{$command}} and {{$result}} are local tokens resolved after
 // resolution.Process runs - they never enter the global sysvar namespace.
-func ResolveToolReport(tool *config.ToolConfig, exec ExecResult, runtimeCtx resolution.Context) (string, error) {
+func ResolveToolReport(tool *config.ToolConfig, exec ExecResult, runtimeCtx resolution.Context) (ToolReport, error) {
 	if tool.Report == "" {
-		return "", nil
+		return ToolReport{}, nil
 	}
 
 	s, err := resolution.Process(tool.Report, runtimeCtx)
 	if err != nil {
-		return "", err
+		return ToolReport{}, err
 	}
 
 	s = strings.ReplaceAll(s, "{{$command}}", exec.Command)
@@ -170,11 +178,11 @@ func ResolveToolReport(tool *config.ToolConfig, exec ExecResult, runtimeCtx reso
 	}
 
 	family := filepath.Base(filepath.Dir(tool.Path))
-	if family != "" && family != topLevelToolsDir {
-		s = family + ":" + s
+	if family == topLevelToolsDir {
+		family = tool.Name
 	}
 
-	return s, nil
+	return ToolReport{Family: family, Message: s}, nil
 }
 
 // formatArgs renders resolved tool args as a stable, readable string for logging.

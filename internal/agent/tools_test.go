@@ -94,7 +94,7 @@ func TestExecuteTool_RelativePath(t *testing.T) {
 func TestResolveToolReport(t *testing.T) {
 	ctx := resolution.NewValidationContext(t.TempDir())
 
-	t.Run("empty report returns empty string", func(t *testing.T) {
+	t.Run("empty report returns zero value", func(t *testing.T) {
 		tool := &config.ToolConfig{Path: "/agent/tools/foo.toml"}
 		exec := ExecResult{Output: "hello"}
 
@@ -102,12 +102,12 @@ func TestResolveToolReport(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != "" {
-			t.Errorf("expected empty report, got %q", got)
+		if got != (ToolReport{}) {
+			t.Errorf("expected zero ToolReport, got %+v", got)
 		}
 	})
 
-	t.Run("family prefix derived from parent folder", func(t *testing.T) {
+	t.Run("family derived from parent folder", func(t *testing.T) {
 		tool := &config.ToolConfig{
 			Report: "read {{path}}",
 			Path:   "/agent/tools/memory/read.toml",
@@ -118,13 +118,15 @@ func TestResolveToolReport(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if want := "memory:read notes.md"; got != want {
-			t.Errorf("got %q, want %q", got, want)
+		want := ToolReport{Family: "memory", Message: "read notes.md"}
+		if got != want {
+			t.Errorf("got %+v, want %+v", got, want)
 		}
 	})
 
-	t.Run("top-level tool has no family prefix", func(t *testing.T) {
+	t.Run("top-level tool falls back to its own name as family", func(t *testing.T) {
 		tool := &config.ToolConfig{
+			Name:   "foo",
 			Report: "ran {{name}}",
 			Path:   "/agent/tools/foo.toml",
 		}
@@ -134,13 +136,15 @@ func TestResolveToolReport(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if want := "ran foo"; got != want {
-			t.Errorf("got %q, want %q", got, want)
+		want := ToolReport{Family: "foo", Message: "ran foo"}
+		if got != want {
+			t.Errorf("got %+v, want %+v", got, want)
 		}
 	})
 
 	t.Run("command and result tokens substituted with truncation", func(t *testing.T) {
 		tool := &config.ToolConfig{
+			Name:   "foo",
 			Report: "cmd={{$command}} result={{$result}}",
 			Path:   "/agent/tools/foo.toml",
 		}
@@ -154,9 +158,9 @@ func TestResolveToolReport(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		wantResult := truncate(exec.Output, reportPreviewLen)
-		want := "cmd=echo hi result=" + wantResult
+		want := ToolReport{Family: "foo", Message: "cmd=echo hi result=" + wantResult}
 		if got != want {
-			t.Errorf("got %q, want %q", got, want)
+			t.Errorf("got %+v, want %+v", got, want)
 		}
 	})
 }

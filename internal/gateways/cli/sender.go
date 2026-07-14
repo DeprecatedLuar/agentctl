@@ -22,3 +22,13 @@ func (Sender) Send(platformID, content string) error {
 	fmt.Println(FormatForCLI(content))
 	return nil
 }
+
+// SendToolReport prints a tool-use report as "family:message" (or just the
+// message if family is empty), formatted the same way as any other message.
+func (s Sender) SendToolReport(platformID, family, message string) error {
+	content := message
+	if family != "" {
+		content = family + ":" + message
+	}
+	return s.Send(platformID, content)
+}

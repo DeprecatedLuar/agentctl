@@ -46,6 +46,7 @@ type MessageHandler interface {
 // OutboundDispatcher handles cross-gateway message delivery
 type OutboundDispatcher interface {
 	Send(gateway, platformID, content string) error
+	SendToolReport(gateway, platformID, family, message string) error
 	Register(sender gateways.Sender)
 }
 

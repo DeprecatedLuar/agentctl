@@ -183,7 +183,7 @@ func (o *Orchestrator) handleMessage(userID, sessionID, gateway, content string,
 	// reports back to the originating gateway/contact as soon as they
 	// happen, instead of only the final no-tool-call reply.
 	var onPartial func(string)
-	var onToolReport func(string)
+	var onToolReport func(agent.ToolReport)
 	if o.Dispatcher != nil {
 		if platformID, perr := session.LookupPlatformID(o.AgentFolder, userID, gateway); perr == nil {
 			onPartial = func(text string) {
@@ -191,8 +191,8 @@ func (o *Orchestrator) handleMessage(userID, sessionID, gateway, content string,
 					o.Logger.Warn("partial delivery failed", "gateway", gateway, "error", err)
 				}
 			}
-			onToolReport = func(text string) {
-				if err := o.Dispatcher.Send(gateway, platformID, text); err != nil {
+			onToolReport = func(report agent.ToolReport) {
+				if err := o.Dispatcher.SendToolReport(gateway, platformID, report.Family, report.Message); err != nil {
 					o.Logger.Warn("tool report delivery failed", "gateway", gateway, "error", err)
 				}
 			}

@@ -24,6 +24,10 @@ func (m *mockSender) Send(platformID, content string) error {
 	return nil
 }
 
+func (m *mockSender) SendToolReport(platformID, family, message string) error {
+	return m.Send(platformID, family+":"+message)
+}
+
 func TestOutboundDispatcher_Register(t *testing.T) {
 	dispatcher := NewOutboundDispatcher()
 

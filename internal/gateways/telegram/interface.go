@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/DeprecatedLuar/agentctl/internal"
+	"github.com/DeprecatedLuar/agentctl/internal/gateways"
 	"github.com/DeprecatedLuar/agentctl/internal/logger"
 	"github.com/DeprecatedLuar/agentctl/internal/providers/audio"
 	"github.com/DeprecatedLuar/agentctl/internal/session"
@@ -301,4 +302,15 @@ func (t *TelegramGateway) Send(platformID, content string) error {
 	msg.ParseMode = "HTML"
 	_, err = t.bot.Send(msg)
 	return err
+}
+
+// SendToolReport delivers a tool-use report as "[family] message" (or just
+// the message if family is empty) wrapped in a code block, so tool activity
+// stands out from regular narration/replies in the chat.
+func (t *TelegramGateway) SendToolReport(platformID, family, message string) error {
+	content := message
+	if family != "" {
+		content = "[" + family + "] " + message
+	}
+	return t.Send(platformID, gateways.FenceCodeBlock(content))
 }
