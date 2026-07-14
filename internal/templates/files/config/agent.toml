@@ -9,7 +9,11 @@ allow_by_default = true
 interfaces = ["cli"]
 
 [memory]
-max_messages = 100  # Keep last N messages (0 = no persistence)
+max_messages = 10  # Keep last N messages (0 = no persistence)
+
+[advanced]
+reasoning_carryover = "tools"  # none | tools | all
+reasoning_effort = "medium"    # minimal | low | medium | high | max
 
 # [environment]
 # Non-secret config defaults (committed to git)

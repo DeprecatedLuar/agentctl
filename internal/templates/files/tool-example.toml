@@ -9,3 +9,4 @@ type = "string"
 required = true
 enabled = true
 return = ""
+env = ""  # override env var name, e.g. "GH_TOKEN"
