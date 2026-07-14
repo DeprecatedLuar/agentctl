@@ -16,7 +16,7 @@ func RootPage() *gohelp.Page {
 			gohelp.Item("monitor <agent>", "Follow an agent's log file live", "agentctl monitor my-agent"),
 			gohelp.Item("toolrun <name>", "Execute a tool manually with parameters", "agentctl toolrun create_schedule --name=test --cron=\"0 * * * *\" --message=\"Test\""),
 			gohelp.Item("getagent", "Print current agent name", "agentctl getagent"),
-			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --free"),
+			gohelp.Item("models [provider]", "List available models (openai, openrouter, or both)", "agentctl models openrouter --vendor anthropic --sort price"),
 			gohelp.Item("help [topic]", "Show help (topics: setup, config, tools, prompt, gateways, sessions, prerun)"),
 		).
 		Section("Chat Flags",
@@ -54,6 +54,8 @@ func RootPage() *gohelp.Page {
 			gohelp.Item("--tools", "Show only models with tool support"),
 			gohelp.Item("--stt", "Show speech-to-text models"),
 			gohelp.Item("--all", "Show all models including obscure providers (default: popular + free only)"),
+				gohelp.Item("--vendor <name>", "Show only models from this vendor (e.g. anthropic, google) — not the same as the openai/openrouter provider arg"),
+				gohelp.Item("--sort <key>", "Order results by provider|price|context (default: provider)"),
 		).
 		Text("Run 'agentctl help <topic>' for detailed documentation.")
 }

@@ -19,9 +19,11 @@ const (
 
 	// Filter flags for HandleModels
 	// flagTools ("--tools") is shared with chat.go/flags.go.
-	flagSTT  = "--stt"
-	flagFree = "--free"
-	flagAll  = "--all"
+	flagSTT    = "--stt"
+	flagFree   = "--free"
+	flagAll    = "--all"
+	flagSort   = "--sort"
+	flagVendor = "--vendor"
 )
 
 // staticModel represents a pre-baked model entry
@@ -129,7 +131,7 @@ func HandleModels(args []string) error {
 
 	// Parse flags and provider
 	var stt, tools, free, all bool
-	var provider string
+	var provider, sortKey, vendor string
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -142,6 +144,18 @@ func HandleModels(args []string) error {
 			free = true
 		case flagAll:
 			all = true
+		case flagSort:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a value (provider, price, or context)", flagSort)
+			}
+			i++
+			sortKey = args[i]
+		case flagVendor:
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a value (e.g. anthropic)", flagVendor)
+			}
+			i++
+			vendor = args[i]
 		default:
 			if provider == "" {
 				provider = arg
@@ -156,31 +170,39 @@ func HandleModels(args []string) error {
 		return fmt.Errorf("unrecognized provider: %s (use 'openai' or 'openrouter')", provider)
 	}
 
+	// Validate sort key (default: provider, i.e. today's alphabetical grouping)
+	if sortKey == "" {
+		sortKey = "provider"
+	}
+	if sortKey != "provider" && sortKey != "price" && sortKey != "context" {
+		return fmt.Errorf("unrecognized sort key: %s (use 'provider', 'price', or 'context')", sortKey)
+	}
+
 	// Show both if no provider specified
 	showBoth := provider == ""
 
 	// Call appropriate handler based on STT vs LLM
 	if stt {
 		if showBoth || provider == "openai" {
-			printOpenAISTTModels(showBoth)
+			printOpenAISTTModels(vendor, sortKey, showBoth)
 		}
 		if showBoth {
 			fmt.Println() // Blank line separator
 		}
 		if showBoth || provider == "openrouter" {
-			if err := printOpenRouterSTTModels(free, showBoth); err != nil {
+			if err := printOpenRouterSTTModels(free, vendor, sortKey, showBoth); err != nil {
 				return err
 			}
 		}
 	} else {
 		if showBoth || provider == "openai" {
-			printOpenAILLMModels(tools, free, showBoth)
+			printOpenAILLMModels(tools, free, vendor, sortKey, showBoth)
 		}
 		if showBoth {
 			fmt.Println() // Blank line separator
 		}
 		if showBoth || provider == "openrouter" {
-			if err := printOpenRouterLLMModels(tools, free, all, showBoth); err != nil {
+			if err := printOpenRouterLLMModels(tools, free, all, vendor, sortKey, showBoth); err != nil {
 				return err
 			}
 		}
@@ -189,10 +211,15 @@ func HandleModels(args []string) error {
 	return nil
 }
 
-func printOpenAILLMModels(tools, free, showHeader bool) {
+func printOpenAILLMModels(tools, free bool, vendor, sortKey string, showHeader bool) {
 	if showHeader {
 		fmt.Println("OpenAI Models")
 		fmt.Println("─────────────")
+	}
+
+	if vendor != "" && !strings.EqualFold(vendor, "openai") {
+		fmt.Println("No models match the specified filters")
+		return
 	}
 
 	if free {
@@ -217,6 +244,8 @@ func printOpenAILLMModels(tools, free, showHeader bool) {
 		return
 	}
 
+	sortStaticModels(filtered, sortKey)
+
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tCTX\tIN\tOUT\tTOOLS")
@@ -232,10 +261,15 @@ func printOpenAILLMModels(tools, free, showHeader bool) {
 	fmt.Printf("\n%d model(s)\n", len(filtered))
 }
 
-func printOpenAISTTModels(showHeader bool) {
+func printOpenAISTTModels(vendor, sortKey string, showHeader bool) {
 	if showHeader {
 		fmt.Println("OpenAI Models")
 		fmt.Println("─────────────")
+	}
+
+	if vendor != "" && !strings.EqualFold(vendor, "openai") {
+		fmt.Println("No models match the specified filters")
+		return
 	}
 
 	// Filter STT models
@@ -252,6 +286,8 @@ func printOpenAISTTModels(showHeader bool) {
 		return
 	}
 
+	sortStaticModels(filtered, sortKey)
+
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tPRICING")
@@ -262,7 +298,7 @@ func printOpenAISTTModels(showHeader bool) {
 	fmt.Printf("\n%d model(s)\n", len(filtered))
 }
 
-func printOpenRouterLLMModels(tools, free, all, showHeader bool) error {
+func printOpenRouterLLMModels(tools, free, all bool, vendor, sortKey string, showHeader bool) error {
 	if showHeader {
 		fmt.Println("OpenRouter Models")
 		fmt.Println("─────────────────")
@@ -291,6 +327,9 @@ func printOpenRouterLLMModels(tools, free, all, showHeader bool) error {
 		if tools && !m.supportsTools() {
 			continue
 		}
+		if vendor != "" && !strings.EqualFold(m.provider(), vendor) {
+			continue
+		}
 		filtered = append(filtered, m)
 	}
 
@@ -299,7 +338,8 @@ func printOpenRouterLLMModels(tools, free, all, showHeader bool) error {
 		return nil
 	}
 
-	// Group models by: free/paid -> tools/no-tools -> provider
+	// Group models by: free/paid -> tools/no-tools; ordering within each
+	// group (provider, price, or context) is controlled by sortKey.
 	type group struct {
 		name   string
 		models []orModel
@@ -343,24 +383,8 @@ func printOpenRouterLLMModels(tools, free, all, showHeader bool) error {
 			continue
 		}
 
-		// Group by provider within this category
-		providerMap := make(map[string][]orModel)
-		for _, m := range grp.models {
-			p := m.provider()
-			providerMap[p] = append(providerMap[p], m)
-		}
-
-		// Sort providers alphabetically
-		var providers []string
-		for p := range providerMap {
-			providers = append(providers, p)
-		}
-		sort.Strings(providers)
-
-		// Add models in provider order
-		for _, provider := range providers {
-			orderedModels = append(orderedModels, providerMap[provider]...)
-		}
+		sortOrModels(grp.models, sortKey)
+		orderedModels = append(orderedModels, grp.models...)
 	}
 
 	// Print single table for LLM models
@@ -382,7 +406,7 @@ func printOpenRouterLLMModels(tools, free, all, showHeader bool) error {
 	return nil
 }
 
-func printOpenRouterSTTModels(free, showHeader bool) error {
+func printOpenRouterSTTModels(free bool, vendor, sortKey string, showHeader bool) error {
 	if showHeader {
 		fmt.Println("OpenRouter Models")
 		fmt.Println("─────────────────")
@@ -394,10 +418,13 @@ func printOpenRouterSTTModels(free, showHeader bool) error {
 		return err
 	}
 
-	// Filter STT models (simple - just free filter)
+	// Filter STT models
 	var filtered []orModel
 	for _, m := range models {
 		if free && !m.isFree() {
+			continue
+		}
+		if vendor != "" && !strings.EqualFold(m.provider(), vendor) {
 			continue
 		}
 		filtered = append(filtered, m)
@@ -408,24 +435,8 @@ func printOpenRouterSTTModels(free, showHeader bool) error {
 		return nil
 	}
 
-	// Sort by provider
-	providerMap := make(map[string][]orModel)
-	for _, m := range filtered {
-		p := m.provider()
-		providerMap[p] = append(providerMap[p], m)
-	}
-
-	var providers []string
-	for p := range providerMap {
-		providers = append(providers, p)
-	}
-	sort.Strings(providers)
-
-	// Collect ordered models
-	var orderedModels []orModel
-	for _, provider := range providers {
-		orderedModels = append(orderedModels, providerMap[provider]...)
-	}
+	sortOrModels(filtered, sortKey)
+	orderedModels := filtered
 
 	// Print table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -446,6 +457,61 @@ func printOpenRouterSTTModels(free, showHeader bool) error {
 	fmt.Printf("\n%d model(s)\n", len(orderedModels))
 
 	return nil
+}
+
+// sortStaticModels orders a slice of staticModel in place per sortKey
+// ("provider" | "price" | "context"). All static models share vendor
+// "openai", so "provider" leaves declaration order untouched.
+func sortStaticModels(models []staticModel, sortKey string) {
+	switch sortKey {
+	case "price":
+		sort.SliceStable(models, func(i, j int) bool {
+			return parseDollarPrice(models[i].priceIn) < parseDollarPrice(models[j].priceIn)
+		})
+	case "context":
+		sort.SliceStable(models, func(i, j int) bool {
+			return models[i].contextLen < models[j].contextLen
+		})
+	}
+}
+
+// sortOrModels orders a slice of orModel in place per sortKey
+// ("provider" | "price" | "context").
+func sortOrModels(models []orModel, sortKey string) {
+	switch sortKey {
+	case "price":
+		sort.SliceStable(models, func(i, j int) bool {
+			return orPromptPrice(models[i]) < orPromptPrice(models[j])
+		})
+	case "context":
+		sort.SliceStable(models, func(i, j int) bool {
+			return models[i].ContextLength < models[j].ContextLength
+		})
+	default: // "provider"
+		sort.SliceStable(models, func(i, j int) bool {
+			pi, pj := models[i].provider(), models[j].provider()
+			if pi != pj {
+				return pi < pj
+			}
+			return models[i].ID < models[j].ID
+		})
+	}
+}
+
+func parseDollarPrice(s string) float64 {
+	v, err := strconv.ParseFloat(strings.TrimPrefix(s, "$"), 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+func orPromptPrice(m orModel) float64 {
+	v, err := strconv.ParseFloat(m.Pricing.Prompt, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 func fetchOpenRouterModels(outputModality string) ([]orModel, error) {
