@@ -19,6 +19,7 @@ func ToolsPage() *gohelp.Page {
 			gohelp.Item("required", "Whether required (default: false)"),
 			gohelp.Item("enabled", "Show to AI (default: true, false = hidden)"),
 			gohelp.Item("return", "Override value with directive support (hides from AI unless contains {{$completion}})"),
+			gohelp.Item("env", "Override the injected env var name, replacing TOOL_<PARAM>", "env = \"GH_TOKEN\" -> $GH_TOKEN instead of $TOOL_TOKEN"),
 		).
 		Section("Special Variables in Return Fields",
 			gohelp.Item("{{$completion}}", "AI's value for this parameter (shows param to AI)", "return = \"--flag {{$completion}}\""),

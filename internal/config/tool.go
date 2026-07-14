@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -24,6 +25,9 @@ const (
 	defaultParameterType = "string"
 )
 
+// validEnvName matches legal POSIX shell environment variable names.
+var validEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 type ToolConfig struct {
 	Name        string
 	Command     string               `toml:"command"`
@@ -38,6 +42,7 @@ type Parameter struct {
 	Required    bool   `toml:"required"`
 	Enabled     bool   `toml:"enabled"`
 	Return      string `toml:"return"` // Override value with directive support (hides from AI)
+	Env         string `toml:"env"`    // Override the injected env var name (default TOOL_<NAME>)
 }
 
 // shouldHideFromAI reports whether this parameter is excluded from the schema
@@ -245,6 +250,20 @@ func loadTool(path string, toolsBasePath string) (ToolConfig, []ValidationIssue)
 						Message: fmt.Sprintf("tools/%s: parameter '%s' return field: %v", relPath, key, err),
 					})
 				}
+			}
+		}
+
+		if env, ok := paramMap["env"].(string); ok {
+			param.Env = env
+
+			// A custom env name replaces the default TOOL_<NAME> injection, so it
+			// must be a legal shell identifier - reject typos loudly instead of
+			// silently exporting nothing.
+			if env != "" && !validEnvName.MatchString(env) {
+				issues = append(issues, ValidationIssue{
+					Type:    IssueError,
+					Message: fmt.Sprintf("tools/%s: parameter '%s' env: %q is not a valid environment variable name", relPath, key, env),
+				})
 			}
 		}
 

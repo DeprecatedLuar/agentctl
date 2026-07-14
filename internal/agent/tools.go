@@ -77,9 +77,15 @@ func ExecuteTool(tool *config.ToolConfig, args map[string]interface{}, agentFold
 	// Build tool environment: inject all resolved params as TOOL_<PARAMNAME> env vars.
 	// A tool that needs system context (user, session, etc.) declares a hidden
 	// param with return = "{{$var}}" rather than getting it injected ambiently.
+	// A param can override its injected name via `env = "NAME"` (e.g. to match
+	// an env var a wrapped script/CLI expects verbatim, like GH_TOKEN) - this
+	// replaces the TOOL_ binding rather than adding to it.
 	toolEnv := make(map[string]string)
 	for key, value := range substitutions {
 		envKey := "TOOL_" + strings.ToUpper(key)
+		if param, ok := tool.Parameters[key]; ok && param.Env != "" {
+			envKey = param.Env
+		}
 		toolEnv[envKey] = value
 	}
 
