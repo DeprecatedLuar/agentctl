@@ -41,6 +41,12 @@ func FormatForCLI(text string) string {
 		return text
 	}
 
+	// Extract code spans before any other conversion - see gateways.ProtectCodeSpans.
+	text, restoreCode := gateways.ProtectCodeSpans(text,
+		func(content string) string { return ansiCyan + content + ansiReset }, // ```code block``` -> cyan ANSI, more visible than dim
+		func(content string) string { return ansiDim + content + ansiReset },  // `code` -> dim ANSI
+	)
+
 	// Convert markdown to ANSI codes (order matters: bold-italic first, then bold, then italic)
 
 	// ***bold-italic*** -> bold+italic ANSI
@@ -56,11 +62,8 @@ func FormatForCLI(text string) string {
 	// ~~strikethrough~~ -> strikethrough ANSI
 	text = gateways.ApplyStrike(text, ansiStrikethrough+"$1"+ansiReset)
 
-	// `code` -> dim ANSI (inline code)
-	text = gateways.ApplyCode(text, ansiDim+"$1"+ansiReset)
-
-	// ```code block``` -> cyan ANSI (code block, more visible than dim)
-	text = gateways.ApplyCodeBlock(text, ansiCyan+"$1"+ansiReset)
+	// Restore code spans verbatim now that no further passes can corrupt them.
+	text = restoreCode(text)
 
 	return text
 }

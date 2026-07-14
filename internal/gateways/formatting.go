@@ -9,6 +9,11 @@ import (
 	"github.com/DeprecatedLuar/agentctl/internal/syscommands"
 )
 
+// codeSpanPlaceholder marks where an extracted code span is later restored.
+// \x00 bytes can't occur in normal text and contain no markdown-significant
+// characters, so subsequent bold/italic/strike passes can't match across them.
+const codeSpanPlaceholder = "\x00%d\x00"
+
 // Shared markdown regex patterns used by both cli and telegram formatting.
 // Only patterns whose structure (capture groups) is identical across
 // gateways live here - italic patterns differ per gateway (capturing
@@ -46,14 +51,50 @@ func ApplyStrike(text, replacement string) string {
 	return MarkdownStrikePattern.ReplaceAllString(text, replacement)
 }
 
-// ApplyCode replaces `code` markdown with the given replacement template.
-func ApplyCode(text, replacement string) string {
-	return MarkdownCodePattern.ReplaceAllString(text, replacement)
+// ProtectCodeSpans extracts ```code blocks``` and `inline code` from text,
+// replacing each with a placeholder token, before any bold/italic/strike
+// conversion runs. Markdown emphasis characters (*, _) commonly appear inside
+// or straddle code spans (e.g. `snake_case`, or a stray "`x_` ... `_y`"), and
+// converting them in place lets a tag opened inside one code span close
+// inside another - producing invalid, overlapping markup. Extracting code
+// first and restoring it last (via the returned restore func, to be called
+// after the caller's own markdown passes) shields its content entirely.
+//
+// wrapBlock/wrapCode format an extracted span's raw content into the
+// caller's target representation (HTML tags for Telegram, ANSI codes for
+// CLI, etc.) - only that formatting differs per gateway, the extraction and
+// restoration logic itself is shared.
+func ProtectCodeSpans(text string, wrapBlock, wrapCode func(content string) string) (string, func(string) string) {
+	var spans []string
+	extract := func(text string, pattern *regexp.Regexp, wrap func(string) string) string {
+		return pattern.ReplaceAllStringFunc(text, func(m string) string {
+			content := pattern.FindStringSubmatch(m)[1]
+			spans = append(spans, wrap(content))
+			return fmt.Sprintf(codeSpanPlaceholder, len(spans)-1)
+		})
+	}
+
+	// ``` must run before ` (single backtick), otherwise the single-backtick
+	// pattern would consume the triple backticks as adjacent pairs.
+	text = extract(text, MarkdownCodeBlockPattern, wrapBlock)
+	text = extract(text, MarkdownCodePattern, wrapCode)
+
+	restore := func(s string) string {
+		for i, span := range spans {
+			s = strings.Replace(s, fmt.Sprintf(codeSpanPlaceholder, i), span, 1)
+		}
+		return s
+	}
+	return text, restore
 }
 
-// ApplyCodeBlock replaces ```code block``` markdown with the given replacement template.
-func ApplyCodeBlock(text, replacement string) string {
-	return MarkdownCodeBlockPattern.ReplaceAllString(text, replacement)
+// FenceCodeBlock wraps text in markdown code-block fences so it renders
+// consistently as a code block wherever it's delivered (each gateway's own
+// Format* pipeline turns ``` into its native code-block styling). Used to
+// standardize tool-use report rendering regardless of what a tool's
+// `report` template contains.
+func FenceCodeBlock(text string) string {
+	return "```" + text + "```"
 }
 
 // FormatNewSession formats a /new command result. Identical across all interfaces.

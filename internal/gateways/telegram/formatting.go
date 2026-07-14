@@ -21,6 +21,12 @@ func formatForTelegram(text string) string {
 	// Escape HTML special chars first
 	text = html.EscapeString(text)
 
+	// Extract code spans before any other conversion - see ProtectCodeSpans.
+	text, restoreCode := gateways.ProtectCodeSpans(text,
+		func(content string) string { return "<pre>" + content + "</pre>" },
+		func(content string) string { return "<code>" + content + "</code>" },
+	)
+
 	// Convert markdown to HTML (order matters: bold-italic first, then bold, then italic)
 
 	// ***bold-italic*** -> <b><i>text</i></b>
@@ -36,12 +42,8 @@ func formatForTelegram(text string) string {
 	// ~~strikethrough~~ -> <s>strikethrough</s>
 	text = gateways.ApplyStrike(text, "<s>$1</s>")
 
-	// ```code block``` -> <pre>code</pre> (must run before single-backtick codePattern,
-	// otherwise codePattern consumes the triple backticks as adjacent single-backtick pairs)
-	text = gateways.ApplyCodeBlock(text, "<pre>$1</pre>")
-
-	// `code` -> <code>code</code>
-	text = gateways.ApplyCode(text, "<code>$1</code>")
+	// Restore code spans verbatim now that no further passes can corrupt them.
+	text = restoreCode(text)
 
 	return text
 }

@@ -45,6 +45,16 @@ func TestFormatForTelegram(t *testing.T) {
 			input:    "Plain text without formatting",
 			expected: "Plain text without formatting",
 		},
+		{
+			name:     "underscores inside inline code are not treated as italic",
+			input:    "Use `snake_case_var` here",
+			expected: "Use <code>snake_case_var</code> here",
+		},
+		{
+			name:     "underscores straddling two code spans don't produce overlapping tags",
+			input:    "Use `x_` and `_y` here",
+			expected: "Use <code>x_</code> and <code>_y</code> here",
+		},
 	}
 
 	for _, tt := range tests {
