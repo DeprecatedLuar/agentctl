@@ -245,7 +245,7 @@ interface.go  # Start(), message routing, Sender
 commands.go   # handleCommand(), UX formatting
 ```
 1. Implement `internal.Gateway` (Start method)
-2. Implement `Sender` (GatewayName, Send)
+2. Implement `Sender` (GatewayName, Send, SendToolReport)
 3. Accept `internal.MessageHandler` in constructor
 4. Detect "/" → syscommands.Parse() → helpers → format → return
 5. Messages → handler.HandleMessage(gateway, contactID, displayName, username, content)
