@@ -31,6 +31,9 @@ const (
 
 	// Time format for schedule.time
 	scheduleTimeFormat = "15:04"
+
+	minDayOfMonth = 1
+	maxDayOfMonth = 31
 )
 
 // ScheduleMode identifies which single trigger shape a routine's
@@ -59,6 +62,7 @@ var weekdayNames = map[string]time.Weekday{
 var (
 	dayIntervalPattern  = regexp.MustCompile(`^(\d+)d$`)
 	hourIntervalPattern = regexp.MustCompile(`^(\d+)h$`)
+	dayOfMonthPattern   = regexp.MustCompile(`^(\d+)(st|nd|rd|th)$`)
 )
 
 // Schedule is the compiled, validated form of a routine's [schedule] table.
@@ -356,20 +360,23 @@ func classifyEvery(everyStr string) (ScheduleMode, []time.Weekday, []int, time.D
 		return ModeWeekday, weekdays, nil, 0, nil
 	}
 
-	// Try day-of-month list: every token must be a plain integer.
-	if allIntegers(tokens) {
+	// Try day-of-month list: every token must be an ordinal such as "1st".
+	if allDayOfMonthOrdinals(tokens) {
 		days := make([]int, 0, len(tokens))
 		for _, tok := range tokens {
-			n, _ := strconv.Atoi(tok)
-			if n < 1 || n > 31 {
-				return ModeNone, nil, nil, 0, fmt.Errorf("day-of-month value %d out of range 1-31", n)
+			n, err := parseDayOfMonthOrdinal(tok)
+			if err != nil {
+				return ModeNone, nil, nil, 0, err
 			}
 			days = append(days, n)
 		}
 		return ModeDayOfMonth, nil, days, 0, nil
 	}
+	if allIntegers(tokens) {
+		return ModeNone, nil, nil, 0, fmt.Errorf("bare day-of-month numbers are not supported; use ordinals such as \"1st,15th\"")
+	}
 
-	return ModeNone, nil, nil, 0, fmt.Errorf("unrecognized or mixed-type value %q (expected a weekday list, a day-of-month list, \"Nd\", or \"Nh\" - never mixed)", everyStr)
+	return ModeNone, nil, nil, 0, fmt.Errorf("unrecognized or mixed-type value %q (expected a weekday list, an ordinal day-of-month list, \"Nd\", or \"Nh\" - never mixed)", everyStr)
 }
 
 func allWeekdays(tokens []string) bool {
@@ -388,4 +395,50 @@ func allIntegers(tokens []string) bool {
 		}
 	}
 	return true
+}
+
+func allDayOfMonthOrdinals(tokens []string) bool {
+	for _, tok := range tokens {
+		if !dayOfMonthPattern.MatchString(tok) {
+			return false
+		}
+	}
+	return true
+}
+
+func parseDayOfMonthOrdinal(token string) (int, error) {
+	match := dayOfMonthPattern.FindStringSubmatch(token)
+	if match == nil {
+		return 0, fmt.Errorf("invalid day-of-month ordinal %q", token)
+	}
+
+	day, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, fmt.Errorf("invalid day-of-month ordinal %q: %w", token, err)
+	}
+	if day < minDayOfMonth || day > maxDayOfMonth {
+		return 0, fmt.Errorf("day-of-month value %d out of range %d-%d", day, minDayOfMonth, maxDayOfMonth)
+	}
+
+	expectedSuffix := ordinalSuffix(day)
+	if match[2] != expectedSuffix {
+		return 0, fmt.Errorf("day-of-month ordinal %q has the wrong suffix; expected %q", token, strconv.Itoa(day)+expectedSuffix)
+	}
+	return day, nil
+}
+
+func ordinalSuffix(day int) string {
+	if day >= 11 && day <= 13 {
+		return "th"
+	}
+	switch day % 10 {
+	case 1:
+		return "st"
+	case 2:
+		return "nd"
+	case 3:
+		return "rd"
+	default:
+		return "th"
+	}
 }

@@ -64,9 +64,9 @@ func TestLoadRoutines_EveryModes(t *testing.T) {
 		},
 		{
 			name:       "day of month list",
-			schedule:   `schedule.time = "08:00"` + "\n" + `schedule.every = "2,3,24"`,
+			schedule:   `schedule.time = "08:00"` + "\n" + `schedule.every = "1st,2nd,3rd,4th,11th,12th,13th,21st,22nd,23rd,31st"`,
 			expectMode: ModeDayOfMonth,
-			expectDays: []int{2, 3, 24},
+			expectDays: []int{1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31},
 		},
 		{
 			name:         "day interval",
@@ -165,7 +165,7 @@ func TestLoadRoutines_RejectionCases(t *testing.T) {
 		},
 		{
 			name:        "time missing for day-of-month mode",
-			content:     "command = \"echo hi\"\nschedule.every = \"2,3\"\n",
+			content:     "command = \"echo hi\"\nschedule.every = \"2nd,3rd\"\n",
 			expectedSub: "schedule.time is required",
 		},
 		{
@@ -194,9 +194,19 @@ func TestLoadRoutines_RejectionCases(t *testing.T) {
 			expectedSub: "must be HH:MM",
 		},
 		{
+			name:        "bare day of month rejected",
+			content:     "command = \"echo hi\"\nschedule.time = \"10:00\"\nschedule.every = \"1,15\"\n",
+			expectedSub: "bare day-of-month numbers are not supported",
+		},
+		{
 			name:        "day of month out of range",
-			content:     "command = \"echo hi\"\nschedule.time = \"10:00\"\nschedule.every = \"32\"\n",
+			content:     "command = \"echo hi\"\nschedule.time = \"10:00\"\nschedule.every = \"32nd\"\n",
 			expectedSub: "out of range",
+		},
+		{
+			name:        "day of month with wrong suffix",
+			content:     "command = \"echo hi\"\nschedule.time = \"10:00\"\nschedule.every = \"11st\"\n",
+			expectedSub: "wrong suffix",
 		},
 		{
 			name:        "invalid rrule string",

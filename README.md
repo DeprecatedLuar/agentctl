@@ -433,12 +433,13 @@ time = "08:55"
 | Shape | Example | Meaning |
 |-------|---------|---------|
 | Weekday list | `every = "mon,wed,fri"` + `time = "09:00"` | Those weekdays at HH:MM |
-| Day-of-month list | `every = "1,15"` + `time = "09:00"` | Those days (1–31) at HH:MM |
+| Day-of-month list | `every = "1st,15th"` + `time = "09:00"` | Those days (1st–31st) at HH:MM |
 | Every N days | `every = "3d"` + `time = "09:00"` | Every 3rd day at HH:MM |
 | Every N hours | `every = "6h"` | Every 6 hours (**no `time`**) |
 | RRULE | `rrule = "FREQ=WEEKLY;BYDAY=MO,WE"` | RFC-5545 recurrence rule |
 
 - `time` is 24-hour `HH:MM`. **Required** for weekday / day-of-month / `Nd`; **not allowed** with `Nh`; unused with `rrule`.
+- Day-of-month tokens use ordinals (`1st`, `2nd`, `3rd`, …, `31st`); bare numbers are rejected.
 - `every` tokens must all be the **same category** — mixing (e.g. `"mon,3d"`) is a hard error. This is deliberate: it avoids cron's ambiguous "OR" semantics.
 - `rrule` is mutually exclusive with `every`/`time`.
 - A malformed routine is a blocking error at daemon startup, and a logged (non-fatal) warning on live reload.

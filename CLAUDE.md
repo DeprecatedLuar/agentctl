@@ -127,7 +127,7 @@ enabled = true                    # optional, default true
 
 [schedule]                        # required — exactly one shape (mode detected from `every`'s token type):
 # every = "mon,wed,fri" + time = "09:00"   # ModeWeekday
-# every = "1,15"        + time = "09:00"   # ModeDayOfMonth (1-31)
+# every = "1st,15th"    + time = "09:00"   # ModeDayOfMonth (1st-31st)
 # every = "3d"          + time = "09:00"   # ModeDayInterval
 # every = "6h"                             # ModeHourInterval (time forbidden)
 # rrule = "FREQ=WEEKLY;BYDAY=MO,WE"        # ModeRRule (mutually exclusive with every/time)

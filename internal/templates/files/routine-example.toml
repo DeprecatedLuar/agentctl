@@ -4,7 +4,7 @@ description = """
 enabled = true
 
 [schedule]
-every = ""  # "mon,wed,fri" | "1,15" | "3d" | "6h" (no time) — or use rrule instead
+every = ""  # "mon,wed,fri" | "1st,15th" | "3d" | "6h" (no time) — or use rrule instead
 time = ""   # "HH:MM"
 # rrule = ""  # RFC-5545, excludes every/time
 
